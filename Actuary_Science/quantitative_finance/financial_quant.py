@@ -32,7 +32,7 @@ WARNING:
 
 # Let's plot the information about our asset or universe:
 
-ric = 'VIX'
+ric = ''
 # For a given list (an easier way)
 # rics = ['GFNORTE', 'USDMXN']
 
@@ -75,7 +75,7 @@ correlation.plot_linear_reg()'''
 And what if we want to see the graph of both assets into the same plot?
 We achieve it with the same class (capm)
 '''
-security = 'SOXL'
+security = 'GCARSOA1'
 benchmark = 'USDMXN'
 
 summary = capm.model(security, benchmark)
@@ -83,6 +83,16 @@ summary.synchronise_timeseries()
 summary.plot_timeseries()
 summary.compute_linear_reg() 
 summary.plot_linear_reg()
+
+# Sample: To see if the correlations keeps in historical time 
+security = 'GCARSOA12012-15'
+benchmark = 'USDMXN2012-15'
+
+sample = capm.model(security, benchmark)
+sample.synchronise_timeseries() 
+sample.plot_timeseries()
+sample.compute_linear_reg() 
+sample.plot_linear_reg()
 
 '''
 I want to streamline the process to get the correlations, what if...
@@ -126,7 +136,7 @@ for i in nombres:
         encoding="UTF8"
     )
 
-benchmarks = ['USDMXN', 'USDEUR', 'DJI', 'SPX', 'NASDAQ', 'MSCI_W', 'MSCI_EM', 'VIX', 'BRENT', 'MXX', 'inflationusa', 'inflationmex', 'XAU_USD', 'SOX']
+benchmarks = ['USDMXN', 'USDEUR', 'DJI', 'SPX', 'NASDAQ', 'MSCI_W', 'MSCI_EM', 'VIX', 'BRENT', 'MXX', 'inflationusa', 'inflationmex', 'XAU_USD', 'SOX', 'XLV']
 
 # nombres = [x for x in nombres if x not in benchmarks]
 
@@ -167,6 +177,7 @@ with open(archivo, "w", encoding="UTF8", newline="") as file:
 """
 PORTFOLIO
 How much should I invest in each asset?
+Be careful with leveraged assets! Instead of this, use the base asset.
 """
 rics = ['SOX', 'VIX']
 notional = 5000
@@ -185,6 +196,121 @@ We have two ways to get it
 We will do the second one as follows
 """
 
-ric_corr = 'SOXL'
+ric_corr = ''
 df_security = df[df['security'] == ric_corr].sort_values(by=["correlation"], ascending=False).reset_index(drop=True)
 
+"""
+The will be an extra manipulation for USDMXN's information...
+We will make the linear regression with filtered data
+In this case we will take the days with a return grater than or equals to 1% = 0.01...
+
+|USD return| > 1%
+
+* La mayoría de los días el USD se mueve poco
+En esos días:
+- GCARSO se mueve por sus propios factores
+- La relación se diluye → R² bajo
+Pero eso NO significa que no haya edge
+Significa que el edge aparece solo en días especiales
+
+We will add the following code later as a method OR simply modifing the CAPM´s methods in its respective class.
+
+TO MAKE A BETTTER CODE WE MUST USE PERCENTILES INSTEAD OF A FIXED PERCENTAJE AS 1% TO MAKE THE TESTING IN HIGH VOLATILITY DAYS
+"""
+import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+import importlib
+import scipy.stats as st 
+
+from datetime import datetime
+import pandas as pd
+
+ric = 'GFNORTEO'
+benchmark = 'USDMXN'
+def load_timeseries(ric, highVolDays = False):
+    # directory = '/Users/hectorastudillo/py-proyects/Actuary_Science/projects/quantitative_finance/market_data_c/'
+    # path = directory + ric + '.csv'
+    path = 'market_universe/' + ric + '.csv'
+    raw_data = pd.read_csv(path)
+    # Si usamos información de Investing usamos la siguiente linea
+    # raw_data = corrector(raw_data)
+    t = pd.DataFrame()
+    t['date'] = pd.to_datetime(raw_data['Date'],format='mixed', dayfirst=True)
+    t['close'] = raw_data['Close']
+    t = t.sort_values(by='date', ascending=True)
+    t['close_previous'] = t['close'].shift(1) # This function shift "recorrer" one cell. 
+    t['return'] = t['close'] / t['close_previous'] - 1
+    if highVolDays == True:
+        t = t[abs(t['return']) >= 0.01]
+    t = t.dropna()
+    t = t.reset_index(drop=True)
+    return t
+
+def synchronise_timseries_df(security, benchmark, highVolDays = False):
+    timeseries_x = load_timeseries(benchmark, highVolDays)
+    timeseries_y = load_timeseries(security)
+
+    # Los siguientes pasos son necesarios para tener mismas dimensiones en ambos activos, ya que no podemos manipularlas para la reg. lin. si son de diferente tamaño.
+    timestamps_x = timeseries_x['date'].values
+    timestamps_y = timeseries_y['date'].values
+    # Lo que quiero hacer es la intersección de ambas stamstapms, para ello AMBAS LISTAS CREADAS DEBEN DE SER CONJUNTOS, lo hacemos con la funcións set
+    timestamps = list(set(timestamps_x) & set(timestamps_y)) # Tal que el resultado de la intersección lo quiero como una lista y no como un conjunto 
+
+    # Ahora hacemos el filtrado para obtener mismas dimensiones, esto lo logramos con Pandas
+    timeseries_x = timeseries_x[timeseries_x['date'].isin(timestamps)]
+    timeseries_y = timeseries_y[timeseries_y['date'].isin(timestamps)]
+
+    # Re ordenamos ambos subconjuntos 
+    timeseries_x = timeseries_x.sort_values(by='date', ascending = True)
+    timeseries_y = timeseries_y.sort_values(by='date', ascending = True)
+
+    # Re organizamos el índice de ambos subsets
+    timeseries_x = timeseries_x.reset_index(drop = True)
+    timeseries_y = timeseries_y.reset_index(drop = True)
+
+    # AHORA DEBEMOS DE CREAR UN DATAFRAME QUE CONTENGA UNICAMENTE LA FECHA, EL CLOSE DE  X, EL CLOSE DE Y y EL RETURN DE AMBOS (rendimiento)
+    # Pero la mejor prática es encapsular todo lo anterior dentro de una función! Para después hacer el plot.
+
+    timeseries = pd.DataFrame()
+    timeseries['date'] = timeseries_x['date']
+    timeseries['close_x'] = timeseries_x['close']
+    timeseries['close_y'] = timeseries_y['close']
+    timeseries['return_x'] = timeseries_x['return']
+    timeseries['return_y'] = timeseries_y['return']
+    return timeseries
+
+df = synchronise_timseries_df(ric, benchmark, True)
+
+def compute_linear_reg(timeseries, decimals = 2):
+    # Lineal Regression 
+    x = timeseries['return_x'].values
+    y = timeseries['return_y'].values
+    slope_beta, intercept_alpha, correl_r, p_value, standard_error = st.linregress(x, y)
+    beta = np.round(slope_beta, decimals)
+    alpha = np.round(intercept_alpha, decimals)
+    p_value = np.round(p_value, decimals)
+    correlation = np.round(correl_r, decimals)
+    r_squared = np.round(correl_r**2, decimals)
+    hypothesis_null = p_value > 0.5
+    predictor_linreg = intercept_alpha + slope_beta * x
+    # PLOT
+    str_self = 'Linear regression | security ' + ric \
+        + ' | benchmark ' + benchmark + '\n' \
+        + 'alpha ' + str(alpha) \
+        + ' | beta (slope) ' + str(beta)  + '\n' \
+        + 'p-value ' + str(p_value) \
+        + ' | null-hypothesis ' + str(hypothesis_null) + '\n' \
+        + 'correl (r-value) ' + str(correlation) \
+        + ' | r-squared ' + str(r_squared)
+    str_title = 'Scatterplot of returns ' + '\n' + str_self
+    # plt.figure(figsize=(10,10))
+    plt.title(str_title)
+    plt.scatter(x, y)
+    plt.plot(x, predictor_linreg, color='green' )
+    plt.ylabel(ric) 
+    plt.xlabel(benchmark) 
+    plt.grid()
+    plt.show()
+    
+compute_linear_reg(df)

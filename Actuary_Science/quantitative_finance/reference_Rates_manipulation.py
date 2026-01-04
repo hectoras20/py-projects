@@ -54,6 +54,7 @@ def synchronise_timseries_df(info1, info2):
     timeseries['Tasa_y'] = timeseries_y['Tasa']
     timeseries['Var_x'] = timeseries_x['Var']
     timeseries['Var_y'] = timeseries_y['Var']
+    timeseries['Dif'] = timeseries['Tasa_y'] - timeseries['Tasa_x']
     return timeseries
 
 
@@ -92,6 +93,42 @@ def primer_dia_de_cada_mes(df):
 # info_mensual.loc[info_mensual['Fecha'] == '2021-01-02']
 # Me retorna un df filtrado bajo la condicion previa de Mask
 
+def promedio_mensual(df):
+    """
+    Calcula el promedio mensual (mes-año) de las tasas y variaciones.
+    Retorna un DataFrame con frecuencia mensual.
+    """
+    df = df.copy()
+    
+    # Crear identificador Año-Mes
+    df['YearMonth'] = df['Fecha'].dt.to_period('M')
+    
+    # Agrupar por mes y calcular promedios
+    df_mensual = (
+        df
+        .groupby('YearMonth')
+        .agg({
+            'Tasa_x': 'mean',
+            'Tasa_y': 'mean',
+            'Var_x': 'mean',
+            'Var_y': 'mean'
+        })
+        .reset_index()
+    )
+    
+    # Convertir YearMonth a fecha (primer día del mes)
+    df_mensual['Fecha'] = df_mensual['YearMonth'].dt.to_timestamp()
+    
+    # Diferencial promedio mensual (opcional, pero útil)
+    df_mensual['Dif'] = df_mensual['Tasa_y'] - df_mensual['Tasa_x']
+    
+    # Orden final
+    df_mensual = df_mensual.sort_values('Fecha').reset_index(drop=True)
+    df_mensual.drop('Fecha', axis=1, inplace=True)
+    
+    return df_mensual
+
+
 def plot_timeseries(df):
     plt.figure(figsize=(12,5))
     plt.title('Timeseries of Rates')
@@ -100,6 +137,7 @@ def plot_timeseries(df):
     ax = plt.gca()
     ax1 = df.plot(kind='line', x='Fecha', y='Tasa_x', ax=ax, grid=True, color='blue', label=info2)
     ax2 = df.plot(kind='line', x='Fecha', y='Tasa_y' , color='red', secondary_y=False, ax=ax, grid=True, label=info1)
+    ax3 = df.plot(kind='line', x='Fecha', y='Dif' , color='green', secondary_y=False, ax=ax, grid=True, label='Dif')
     ax1.legend(loc=2)
     ax2.legend(loc=1)
     plt.show()
@@ -122,12 +160,14 @@ info = synchronise_timseries_df(info1, info2)
 
 info_filtrado = filtrar_por_rango(
     info,
-    fecha_inicio='2024-05-01',
-    fecha_fin='2025-04-28'
+    fecha_inicio='2024-01-01',
+    fecha_fin='2025-06-30'
 )
 
-info_mensual = primer_dia_de_cada_mes(info)
+# info_mensual = primer_dia_de_cada_mes(info)
+
+info_mensual_prom = promedio_mensual(info)
 
 plot_timeseries(info_filtrado)
 
-cargar_archivo(info_filtrado)
+cargar_archivo(info_mensual_prom)
