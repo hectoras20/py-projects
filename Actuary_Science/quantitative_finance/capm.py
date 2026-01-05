@@ -82,6 +82,8 @@ class model:
         
     def synchronise_timeseries(self):
         self.timeseries = market_data.synchronise_timseries_df(self.security, self.benchmark)
+        if self.timeseries.empty:
+            print('There is a problem with ', self.security, ' and ', self.benchmark, '. There is not information to match')
         
     def plot_timeseries(self):
         plt.figure(figsize=(12,5))

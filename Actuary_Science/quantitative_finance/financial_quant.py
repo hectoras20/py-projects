@@ -32,7 +32,7 @@ WARNING:
 
 # Let's plot the information about our asset or universe:
 
-ric = ''
+ric = 'XLV'
 # For a given list (an easier way)
 # rics = ['GFNORTE', 'USDMXN']
 
@@ -85,7 +85,7 @@ summary.compute_linear_reg()
 summary.plot_linear_reg()
 
 # Sample: To see if the correlations keeps in historical time 
-security = 'GCARSOA12012-15'
+security = 'GCARSOA1'
 benchmark = 'USDMXN2012-15'
 
 sample = capm.model(security, benchmark)
@@ -136,7 +136,7 @@ for i in nombres:
         encoding="UTF8"
     )
 
-benchmarks = ['USDMXN', 'USDEUR', 'DJI', 'SPX', 'NASDAQ', 'MSCI_W', 'MSCI_EM', 'VIX', 'BRENT', 'MXX', 'inflationusa', 'inflationmex', 'XAU_USD', 'SOX', 'XLV']
+benchmarks = ['USDMXN', 'USDEUR', 'DJI', 'SPX', 'NASDAQ', 'VIX', 'BRENT', 'MXX', 'SOX', 'XLV']
 
 # nombres = [x for x in nombres if x not in benchmarks]
 
@@ -147,6 +147,9 @@ for j in benchmarks:
         security = i
         info = capm.model(security, benchmark)
         info.synchronise_timeseries()
+        if info.timeseries.empty:
+            print('There is a problem with ', info.security)
+            continue
         info.compute_linear_reg()
         df.loc[len(df)] = [
             i,
@@ -226,8 +229,8 @@ import scipy.stats as st
 from datetime import datetime
 import pandas as pd
 
-ric = 'GFNORTEO'
-benchmark = 'USDMXN'
+ric = 'GCARSOA12012-15'
+benchmark = 'USDMXN2012-15'
 def load_timeseries(ric, highVolDays = False):
     # directory = '/Users/hectorastudillo/py-proyects/Actuary_Science/projects/quantitative_finance/market_data_c/'
     # path = directory + ric + '.csv'
