@@ -5,6 +5,9 @@ import importlib
 import scipy.stats as st
 import scipy.optimize as op 
 
+from pathlib import Path
+import csv
+
 import market_data
 importlib.reload(market_data)
 
@@ -64,11 +67,18 @@ def cost_function(x, betas, target_delta, target_beta, regularisation):
     return f
 
 
+def get_names(directory = "market_universe"):
+    ruta = Path(directory) # Function from pathlib 
+    # To obtain the security name from our entire universe:
+    nombres = [f.stem for f in ruta.glob("*.csv")]
+    return nombres
+
 class model:
     def __init__(self, security, benchmark, decimals = 5):
         self.security = security
         self.benchmark = benchmark
         self.decimals = decimals
+        self.namefile = "correlation_output.csv"
         self.timeseries = None
         self.x = None
         self.y = None
@@ -80,8 +90,8 @@ class model:
         self.hypothesis_null = None
         self.predictor_linreg = None
         
-    def synchronise_timeseries(self):
-        self.timeseries = market_data.synchronise_timseries_df(self.security, self.benchmark)
+    def synchronise_timeseries(self, extremeValues = False):
+        self.timeseries = market_data.synchronise_timseries_df(self.security, self.benchmark, extremeValues)
         if self.timeseries.empty:
             print('There is a problem with ', self.security, ' and ', self.benchmark, '. There is not information to match')
         
@@ -128,6 +138,49 @@ class model:
         plt.xlabel(self.benchmark) 
         plt.grid()
         plt.show()
+        
+    def get_all_correlations(self):
+        '''
+        I want to streamline the process to get the correlations, what if...
+        I want to see all the correlations of my assets universe in regard to a specific security...
+        And export it as a file
+        
+        Be careful with what you want to explain
+        Remember that an index does not explain an asset, for example:
+            - BIMBOA explains MXX index, MXX does not explain BIMBOA
+            - BIMBOA is the benchmark
+        '''
+        names = get_names()
+
+        # Creationg of the CSV file with the corrolations 
+        # names = [x for x in names if x not in benchmarks]
+        df = pd.DataFrame(columns = ["benchmark", "correlation", "beta", "r2", 'security']) # We might extend the infomration indicated to show
+        # O(n^2)
+        for i in names:
+            info = model(i, self.benchmark) # i are our securities 
+            info.synchronise_timeseries()
+            if info.timeseries.empty:
+                print('There is a problem with the data matching with', info.security)
+                continue
+            info.compute_linear_reg()
+            # Filling out the dataframe with its correct order
+            df.loc[len(df)] = [
+                    self.benchmark,
+                    info.correlation,
+                    info.beta,
+                    info.r_squared,
+                    i]
+
+        # Once the data is complete in the dataframe, it is time to present it according to an specific order
+        df = df.sort_values(
+            by="correlation",
+            ascending=False).reset_index(drop=True)
+        
+        # It´s time to export it
+        with open(self.namefile, "w", encoding="UTF8", newline="") as file:
+            writer = csv.writer(file)
+            writer.writerow(df.columns.tolist()) # Heading
+            writer.writerows(df.to_numpy().tolist()) 
         
 
 class hedge:

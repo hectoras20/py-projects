@@ -5,8 +5,13 @@ import matplotlib.pyplot as plt
 import importlib
 import scipy.stats as st 
 
+from scipy.optimize import minimize
+import math
+from pathlib import Path
+
 from datetime import datetime
 import pandas as pd
+
 
 # The following two functions works in cases where we use different data from different sources BUT THIS WILL DEPEND ON HOW WE GET THE INFORMATION, THIS IS ONLY AN ADAPTATION FOR A SPECIFIC DATA PRESENTATION.
 
@@ -18,6 +23,9 @@ def corregir_año(año): # El año serán cada valor de la columna a la cual se 
 
 def corrector(raw_data):
     #Empezamos con la depuración en un nuevo df
+    raw_data = raw_data.rename(columns={"Fecha": "Date", "Cierre": "Close"})
+    if 'Date' and 'Close' not in raw_data.columns:
+        print('The neccesary columns do not exist in this data')
     df = pd.DataFrame()
     df['Date'] = raw_data['Date']# Instead of: raw_data.iloc[:, 0]
     df['Close'] = raw_data['Close']
@@ -34,7 +42,7 @@ def corrector(raw_data):
 
 
 # We did not make this function a calculator method because we will use them after for other topics. We want it at hand.
-def load_timeseries(ric):
+def load_timeseries(ric, highVolDays = False): # highVolDays is an option to filter extreme values
     # directory = '/Users/hectorastudillo/py-proyects/Actuary_Science/projects/quantitative_finance/market_data_c/'
     # path = directory + ric + '.csv'
     path = 'market_universe/' + ric + '.csv'
@@ -47,12 +55,15 @@ def load_timeseries(ric):
     t = t.sort_values(by='date', ascending=True)
     t['close_previous'] = t['close'].shift(1) # This function shift "recorrer" one cell. 
     t['return'] = t['close'] / t['close_previous'] - 1
+    # Filtering the extreme values
+    if highVolDays == True:
+        t = t[abs(t['return']) >= 0.01]
     t = t.dropna()
     t = t.reset_index(drop=True)
     return t
 
-def synchronise_timseries_df(security, benchmark):
-    timeseries_x = load_timeseries(benchmark)
+def synchronise_timseries_df(security, benchmark, highVolDays = False):
+    timeseries_x = load_timeseries(benchmark, highVolDays)
     timeseries_y = load_timeseries(security)
 
     # Los siguientes pasos son necesarios para tener mismas dimensiones en ambos activos, ya que no podemos manipularlas para la reg. lin. si son de diferente tamaño.
@@ -111,6 +122,65 @@ def sychronise_returns(rics):
             df['date'] = timestamps
         df[ric] = t['return']
     return df
+
+    # To the Turkey_quantile function, function to optimize with Scipy
+def ppcc_distance(lambda_value, df):
+    values = []
+    lambda_value = lambda_value[0] # Since scipy works with arrays (i.e we pass a lambda value as an array) and we work into our code with a lambda value, NOT as an array, we must do this.
+    for i in df['FDA']:
+        if lambda_value == 0:
+            values.append(math.log(i / (1 - i)))
+        else:
+            values.append((1 / lambda_value) * (i**lambda_value - (1 - i)**lambda_value))
+
+    tukey_quantile = np.array(values)
+
+    PPCC = np.corrcoef(
+        df['ranked_return'],
+        tukey_quantile
+        )[0, 1] # np.corrcoef returns a matrix, from [0,1] we are only taking the value we are interested in.
+
+    # Queremos PPCC lo más cercano posible a 1 y eso NO es lo mismo que “maximizar PPCC” en términos prácticos de optimización.
+    return (1 - PPCC)**2
+
+
+
+def classify_lambda_distance(lmbda, tol=0.03):
+    theoretical = {
+        'Cauchy': -1.0,
+        'Laplace': -0.12,
+        'Hyperbolic Secant': -0.06,
+        'Logistic': 0.0,
+        'Normal': 0.14,
+        'Uniform': 1.0
+    }
+
+    dist = {k: abs(lmbda - v) for k, v in theoretical.items()}
+    best = min(dist, key=dist.get)
+
+    return best if dist[best] <= tol else np.nan
+
+def get_all_lambda(directory =  "market_universe", tolerance=0.03, printMetrics = False):
+    ruta = Path(directory) # Function from pathlib 
+    # To obtain the security name from the specific library:
+    names = [f.stem for f in ruta.glob("*.csv")]
+    
+    rows = []
+    for ric in names:
+        ric_info = distribution_manager(ric)
+        ric_info.load_timeseries()
+        ric_info.tukey_quantile(tolerance, printMetrics)
+
+        rows.append({
+            'ric': ric,
+            'lambda': ric_info.lambda_opt
+        })
+
+    df_tukey = pd.DataFrame(rows)
+    df_tukey['tipo'] = df_tukey['lambda'].apply(classify_lambda_distance, tol = tolerance)
+    return df_tukey
+
+
     
 class distribution_manager:
     def __init__(self, ric, decimals = 5):
@@ -130,6 +200,9 @@ class distribution_manager:
         self.p_value = None
         self.is_normal = None
         # self.cv = None - Is not recomended use it in return since the return´s mean is near from 0.
+        self.lambda_opt = None
+        self.ppcc_opt = None
+        self.distribution_opt = None
         
     # First method to load the timeserie of the asset, using the isolated function previusly created now is used here.
     def load_timeseries(self):
@@ -181,4 +254,37 @@ class distribution_manager:
         plt.hist(self.vector, bins=100)
         plt.title(self.str_title)
         plt.show()
+        
+    # Lambda distribution
+    def tukey_quantile(self, tolerance = 0.3, printMetrics = True):
+        df = pd.DataFrame()
+        vector = np.array(self.vector)
+        df['rank'] = np.arange(1, len(vector) +1) # +1 since the last number to be indicated in the range is excluded.
+        df['ranked_return'] = np.sort(vector)
+        df['FDA'] = df['rank'] / max(df['rank'] +1) # +1 to avoid indeterminations
+        # lambda_value = lambda_value[0]  # scipy always recive arrays BUT in this case we want to GET the optimize lambda, and not give it.
+        initial_lambdas = [-1.0, -0.12, -0.06, 0.0, 0.14, 0.5, 1.0]
+
+        results = []
+
+        for x0 in initial_lambdas:
+            res = minimize(fun = ppcc_distance, x0=[x0], args=(df), method='Nelder-Mead')
+            results.append(res)
+
+        best_result = min(results, key=lambda r: r.fun)
+        # Cada r es un objeto resultado de optimización, osea de la lista results
+        # r es un objeto con varios atributos... scipy.optimize.OptimizeResult y .fun es un atributo del objeto OptimizeResult, entre otros más atributos.
+        # Usamos min ya que mientras más pequeño r.fun, mejor el ajuste
+
+        self.lambda_opt = best_result.x[0]
+        # si el min r.fun = 0.0004
+        # Entonces (1 - PPCC)**2 = 0.0004
+        # Despejando... PPCC = 1 - sqrt(0.0004) = 0.98
+        self.ppcc_opt = 1 - np.sqrt(best_result.fun)
+        self.distribution_opt = classify_lambda_distance(self.lambda_opt , tol=tolerance)
+        if printMetrics == True:
+            print(self.ric, ' has the following data:')
+            print("Optimal Lambda Obtained:", self.lambda_opt)
+            print("PPCC obtained:", self.ppcc_opt)
+            print("Close to a ", self.distribution_opt, ' distribution.')
         
