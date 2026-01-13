@@ -36,7 +36,7 @@ WARNING:
 '''
 
 # Let's plot the information about our asset or universe:
-ric = 'USDMXN'
+ric = 'NFLX'
 
 # We can achieve this with the "market_data" class
 ric_info = market_data.distribution_manager(ric)
@@ -51,6 +51,7 @@ ric_info.plot_timeseries()
 # Get its metrics
 ric_info.compute_stats()
 ric_info.plot()
+
 
 '''
 # For a given list (an easier way)
@@ -87,7 +88,7 @@ And what if we want to see the graph of both assets into the same plot?
 We achieve it with the same class (capm)
 '''
 security = 'MXX'
-benchmark = 'BIMBOA'
+benchmark = 'KOFUBL'
 
 
 summary = capm.model(security, benchmark, 6)
@@ -364,9 +365,16 @@ That can ve extended '''
 ####################################################################################################################################
 
 
+# Remember that MXX changues by KOFUBL and not the other way around.
+ric = 'MXX'
+benchmark = 'KOFUBL'
+# We can achieve this with the "market_data" class
 
-
-
+xtreme = capm.model(security, benchmark, 6)
+xtreme.synchronise_timeseries(extremeValues = True) 
+xtreme.plot_timeseries()
+xtreme.compute_linear_reg() 
+xtreme.plot_linear_reg()
 
 
 
@@ -743,3 +751,9 @@ df_tukey['tipo'] = df_tukey['lambda'].apply(
 Now we want to manipulate the dates
 This could be useful for take a single sample, get many samples as we want,
 get monthly/weekly returns of a single asset or two'''
+
+
+
+
+
+

@@ -23,22 +23,26 @@ def corregir_año(año): # El año serán cada valor de la columna a la cual se 
 
 def corrector(raw_data):
     #Empezamos con la depuración en un nuevo df
-    raw_data = raw_data.rename(columns={"Fecha": "Date", "Cierre": "Close"})
-    if 'Date' and 'Close' not in raw_data.columns:
-        print('The neccesary columns do not exist in this data')
-    df = pd.DataFrame()
-    df['Date'] = raw_data['Date']# Instead of: raw_data.iloc[:, 0]
-    df['Close'] = raw_data['Close']
-    # Tratando los formatos 
-    # DATE with the format 01.01.2025 there is not problem
+    # Renombrar columnas necesarias
+    df = raw_data.rename(columns={"Fecha": "Date", "Cierre": "Close"}).copy()
+    # Verificación de columnas
+    if not {'Date', 'Close'}.issubset(df.columns):
+        raise ValueError('The necessary columns do not exist in this data')
+    # Normalizar separadores de fecha
     df['Date'] = df['Date'].astype(str).str.replace('/', '.', regex=False)
-    # df['Close'] = df['Close'].astype(float) # ESTA SI ESTA BIEN CUANDO NO HAY CANTIDAD EN MILES (SIN COMA, SOLO PUNTOS como 23.53)
-    df['Close'] = (df['Close'].astype(str).str.replace(',', '', regex=False).astype(float))
-    df[['mes', 'dia', 'año']] = df['Date'].str.split('.', expand=True)
-    df['año'] = df['año'].apply(corregir_año) # key: Al usar la función Apply... y usar apply(function) SE ENTIENDE QUE EL ARGUMENTO SON CADA CELDA O VALOR DE LA COLUMNA RESPECTIVA QUE SE VA A CREAR, tipo appli(function(valoresColumna))
-    df['Date'] = df[['mes', 'dia', 'año']].astype(str).agg('.'.join, axis=1)
-    df.drop(columns=['dia', 'mes'], inplace=True) # inplace para que el cambio sea directo
-    return df
+    # Convertir fechas (quita hora)
+    df['Date'] = pd.to_datetime(
+        df['Date'],
+        format='mixed',
+        dayfirst=True
+    ).dt.date
+    # Limpiar y convertir precios
+    df['Close'] = (df['Close']
+        .astype(str)
+        .str.replace(',', '', regex=False)
+        .astype(float)
+    ) # These parentheses are useful for improving code readability
+    return df[['Date', 'Close']]
 
 
 # We did not make this function a calculator method because we will use them after for other topics. We want it at hand.
@@ -123,8 +127,23 @@ def sychronise_returns(rics):
         df[ric] = t['return']
     return df
 
-    # To the Turkey_quantile function, function to optimize with Scipy
 def ppcc_distance(lambda_value, df):
+    """
+    Objective function for Tukey's Lambda distribution fitting using PPCC.
+
+    Parameters
+    ----------
+    lambda_value : array-like
+        Tukey lambda parameter (passed as an array by SciPy).
+
+    df : pandas.DataFrame
+        DataFrame containing 'FDA' and 'ranked_return'.
+
+    Returns
+    -------
+    float
+        Squared PPCC distance (1 - PPCC)^2.
+    """
     values = []
     lambda_value = lambda_value[0] # Since scipy works with arrays (i.e we pass a lambda value as an array) and we work into our code with a lambda value, NOT as an array, we must do this.
     for i in df['FDA']:
@@ -146,6 +165,18 @@ def ppcc_distance(lambda_value, df):
 
 
 def classify_lambda_distance(lmbda, tol=0.03):
+    """
+    Classify a Tukey lambda value into a theoretical distribution.
+
+    Parameters
+    ----------
+    lmbda : float
+    tol : float
+
+    Returns
+    -------
+    str or numpy.nan
+    """
     theoretical = {
         'Cauchy': -1.0,
         'Laplace': -0.12,
@@ -161,6 +192,19 @@ def classify_lambda_distance(lmbda, tol=0.03):
     return best if dist[best] <= tol else np.nan
 
 def get_all_lambda(directory =  "market_universe", tolerance=0.03, printMetrics = False):
+    """
+    Estimate Tukey lambda parameters for all assets in a directory and classify them.
+
+    Parameters
+    ----------
+    directory : str
+    tolerance : float
+    printMetrics : bool
+
+    Returns
+    -------
+    pandas.DataFrame
+    """
     ruta = Path(directory) # Function from pathlib 
     # To obtain the security name from the specific library:
     names = [f.stem for f in ruta.glob("*.csv")]
@@ -180,7 +224,55 @@ def get_all_lambda(directory =  "market_universe", tolerance=0.03, printMetrics 
     df_tukey['tipo'] = df_tukey['lambda'].apply(classify_lambda_distance, tol = tolerance)
     return df_tukey
 
-
+    
+    
+def get_all_kurtosis_skewness(ric, directory = 'market_universe'):
+    """
+    Since a characteristic of financial data include:
+    1. "The empirical distributions of financial returns are leptokurtic, or in other 
+    words they have “fat tails”  compared to the tails of the normal distribution (kurtosis = 3)"
+        - Extreme desviations from the mean happen more frequently than one would 
+        expect with the normal distribution.
+        - A Kurotsis of more than 3 means that the probability distriution has fatter
+        tails and a sharper peak than the normal distribution.
+        - Kurtosis - qué tan FRECUENTES son los valores extremos (±) - how FREQUENT 
+        are extreme values
+        
+    2. The empirical distribution of returns is left-skewed, that is, large negative 
+    returns are possible.
+        - Skewness → si hay más positivos o más negativos - whether there are 
+        more positive or more negative positives
+    
+    We include this function to obtain all the kurotsis and skewness values of our entire universe of securities.
+    
+    **** The skewness does not work with the annual mean, works with the "normal/raw" 
+    mean and median of the returns, self.vector in the class 
+    """
+    ruta = Path(directory) # Function from pathlib 
+    # To obtain the security name from the specific library:
+    names = [f.stem for f in ruta.glob("*.csv")]
+    list_df = [load_timeseries(i) for i in names]
+    df = pd.DataFrame({'ric': names,
+                         '%median' : [np.median(i['return'])*100 for i in list_df],
+                         '%mean' : [st.tmean(i['return'])*100 for i in list_df],
+                         'kurtosis': [st.kurtosis(i['return']) for i in list_df],
+                         'skewness': [st.skew(i['return']) for i in list_df],
+                         'sample-size': [i['return'].size for i in list_df],
+                         'from': [min(i['date']) for i in list_df],
+                         'up to': [max(i['date']) for i in list_df]
+                        })
+    df['from'] = pd.to_datetime(df['from']).dt.date
+    df['to']   = pd.to_datetime(df['to']).dt.date
+    # The following constraints does not worth with actual financial data, are useful to theorical topics and understand how the distributions are relative to the normal distribution and that is it.
+    # df = df[df['kurtosis']<=3] # A normal distribution has a kurtosis equal to 3
+    # df = df[df['skewness']>0] # A normal distribution has a skewness equal to 0, which means it is symmetrical.
+    df = df.sort_values(
+        by=["kurtosis", "skewness"],
+        ascending=[True, False]).reset_index(drop=True)
+    return df
+    
+    
+    
     
 class distribution_manager:
     def __init__(self, ric, decimals = 5):
@@ -287,4 +379,15 @@ class distribution_manager:
             print("Optimal Lambda Obtained:", self.lambda_opt)
             print("PPCC obtained:", self.ppcc_opt)
             print("Close to a ", self.distribution_opt, ' distribution.')
+        
+   
+    
+        
+        
+        
+        
+        
+        
+        
+        
         

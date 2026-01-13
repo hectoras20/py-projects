@@ -89,6 +89,7 @@ class model:
         self.r_squared = None
         self.hypothesis_null = None
         self.predictor_linreg = None
+        self.allCorrelationsDf = None
         
     def synchronise_timeseries(self, extremeValues = False):
         self.timeseries = market_data.synchronise_timseries_df(self.security, self.benchmark, extremeValues)
@@ -139,7 +140,7 @@ class model:
         plt.grid()
         plt.show()
         
-    def get_all_correlations(self):
+    def get_all_correlations(self, getCSV = False):
         '''
         I want to streamline the process to get the correlations, what if...
         I want to see all the correlations of my assets universe in regard to a specific security...
@@ -172,15 +173,16 @@ class model:
                     i]
 
         # Once the data is complete in the dataframe, it is time to present it according to an specific order
-        df = df.sort_values(
+        self.allCorrelationsDf = df.sort_values(
             by="correlation",
             ascending=False).reset_index(drop=True)
         
-        # It´s time to export it
-        with open(self.namefile, "w", encoding="UTF8", newline="") as file:
-            writer = csv.writer(file)
-            writer.writerow(df.columns.tolist()) # Heading
-            writer.writerows(df.to_numpy().tolist()) 
+        # To export it
+        if getCSV == True:
+            with open(self.namefile, "w", encoding="UTF8", newline="") as file:
+                writer = csv.writer(file)
+                writer.writerow(df.columns.tolist()) # Heading
+                writer.writerows(df.to_numpy().tolist()) 
         
 
 class hedge:
