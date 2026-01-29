@@ -140,7 +140,7 @@ class model:
         plt.grid()
         plt.show()
         
-    def get_all_correlations(self, getCSV = False):
+    def get_all_correlations(self, getCSV = False, filter_dates = False):
         '''
         I want to streamline the process to get the correlations, what if...
         I want to see all the correlations of my assets universe in regard to a specific security...
@@ -157,9 +157,16 @@ class model:
         # names = [x for x in names if x not in benchmarks]
         df = pd.DataFrame(columns = ["benchmark", "correlation", "beta", "r2", 'security']) # We might extend the infomration indicated to show
         # O(n^2)
+        if filter_dates == True:
+            fecha_inicio = input('Desde (aaaa-mm-dd): ')
+            fecha_fin = input('Hasta (aaaa-mm-dd): ')
         for i in names:
             info = model(i, self.benchmark) # i are our securities 
             info.synchronise_timeseries()
+            if filter_dates == True:
+                constraint = (info.timeseries['date'] >= fecha_inicio) & (info.timeseries['date'] <= fecha_fin)
+                info.timeseries = info.timeseries.loc[constraint].reset_index(drop=True)
+                
             if info.timeseries.empty:
                 print('There is a problem with the data matching with', info.security)
                 continue

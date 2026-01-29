@@ -36,14 +36,14 @@ WARNING:
 '''
 
 # Let's plot the information about our asset or universe:
-ric = 'NFLX'
+ric = 'KOFUBL'
 
 # We can achieve this with the "market_data" class
 ric_info = market_data.distribution_manager(ric)
 
 # Get the asset information.
 # Load information
-ric_info.load_timeseries()
+ric_info.load_timeseries(filter_dates=True)
 # Get its possible distribution
 ric_info.tukey_quantile(tolerance = 0.05)
 # Get its graph
@@ -87,8 +87,8 @@ correlation.plot_linear_reg()'''
 And what if we want to see the graph of both assets into the same plot?
 We achieve it with the same class (capm)
 '''
-security = 'MXX'
-benchmark = 'KOFUBL'
+security = 'TerraClassicUSD'
+benchmark = 'inflationusa'
 
 
 summary = capm.model(security, benchmark, 6)
@@ -96,7 +96,7 @@ summary.synchronise_timeseries(extremeValues = False)
 summary.plot_timeseries()
 summary.compute_linear_reg() 
 summary.plot_linear_reg()
-summary.get_all_correlations()
+summary.get_all_correlations(filter_dates = False)
 
 # Sample: To see if the correlations keeps in historical time 
 security = 'GCARSOA12012-15'

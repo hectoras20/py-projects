@@ -97,6 +97,7 @@ def synchronise_timseries_df(security, benchmark, highVolDays = False):
     timeseries['close_y'] = timeseries_y['close']
     timeseries['return_x'] = timeseries_x['return']
     timeseries['return_y'] = timeseries_y['return']
+    
     return timeseries
 
 def sychronise_returns(rics):
@@ -163,7 +164,6 @@ def ppcc_distance(lambda_value, df):
     return (1 - PPCC)**2
 
 
-
 def classify_lambda_distance(lmbda, tol=0.03):
     """
     Classify a Tukey lambda value into a theoretical distribution.
@@ -190,6 +190,9 @@ def classify_lambda_distance(lmbda, tol=0.03):
     best = min(dist, key=dist.get)
 
     return best if dist[best] <= tol else np.nan
+
+# Here could be the turkey function to best practices.
+
 
 def get_all_lambda(directory =  "market_universe", tolerance=0.03, printMetrics = False):
     """
@@ -297,12 +300,17 @@ class distribution_manager:
         self.distribution_opt = None
         
     # First method to load the timeserie of the asset, using the isolated function previusly created now is used here.
-    def load_timeseries(self):
+    def load_timeseries(self, filter_dates = False):
         """
         We create our timeserie with the isolated function that we create into this script.
         In this functions we get the vector that contains real data, is our random variable
         """
         self.timeseries = load_timeseries(self.ric)
+        if filter_dates == True:
+                fecha_inicio = input('Desde (aaaa-mm-dd): ')
+                fecha_fin = input('Hasta (aaaa-mm-dd): ')
+                constraint = (self.timeseries['date'] >= fecha_inicio) & (self.timeseries['date'] <= fecha_fin)
+                self.timeseries = self.timeseries.loc[constraint].reset_index(drop=True)
         self.vector = self.timeseries['return'].values
         self.size = len(self.vector)
         self.str_title = self.ric + ' | real data'
@@ -349,18 +357,16 @@ class distribution_manager:
         
     # Lambda distribution
     def tukey_quantile(self, tolerance = 0.3, printMetrics = True):
-        df = pd.DataFrame()
-        vector = np.array(self.vector)
-        df['rank'] = np.arange(1, len(vector) +1) # +1 since the last number to be indicated in the range is excluded.
-        df['ranked_return'] = np.sort(vector)
-        df['FDA'] = df['rank'] / max(df['rank'] +1) # +1 to avoid indeterminations
+        self.timeseries['rank'] = np.arange(1, len(self.vector) +1)
+        self.timeseries['ranked_return'] = np.sort(np.array(self.vector))
+        self.timeseries['FDA'] = self.timeseries['rank'] / max(self.timeseries['rank'] +1) # +1 to avoid indeterminations
         # lambda_value = lambda_value[0]  # scipy always recive arrays BUT in this case we want to GET the optimize lambda, and not give it.
         initial_lambdas = [-1.0, -0.12, -0.06, 0.0, 0.14, 0.5, 1.0]
 
         results = []
 
         for x0 in initial_lambdas:
-            res = minimize(fun = ppcc_distance, x0=[x0], args=(df), method='Nelder-Mead')
+            res = minimize(fun = ppcc_distance, x0=[x0], args=(self.timeseries), method='Nelder-Mead')
             results.append(res)
 
         best_result = min(results, key=lambda r: r.fun)

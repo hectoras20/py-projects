@@ -15,10 +15,16 @@ import numpy as np
 # PREPARING DATA
 df_name = ''
 df = pd.read_csv('/Users/hectorastudillo/py-proyects/machine_learning/data/' + df_name + '.csv')
+
+# Let us remove the % symbol in the first columns
+df['Crecimiento_de_Ventas_YoY(%)'] = df['Crecimiento_de_Ventas_YoY(%)'].str.strip('%').astype(float)
+df['Crecimiento_de_EBITDA_YoY(%)'] = df['Crecimiento_de_EBITDA_YoY(%)'].str.strip('%').astype(float)
+df['Crecimiento_de_Utilidad_Neta_YoY(%)'] = df['Crecimiento_de_Utilidad_Neta_YoY(%)'].str.strip('%').astype(float)
+df = df.dropna()
 df.info()
 
-target_column = ''
-X = df.drop(target_column, axis=1).values # We are not deleting this into the original dataframe
+target_column = 'Ponderado'
+X = df.drop(target_column, axis=1).values # We are not deleting this into the original dataframe, notice that we only take the values.
 y = df[target_column].values 
 
 print(type(X), type(y))
@@ -29,9 +35,9 @@ General Considerations:
     - Our X and y variables must be numpy arrays. NO SERIES!!!!!!!!
     
     - The features shape must have a value (any) in its second entry, for example (x, 1), being a two dimensional array in other words.
-        Solution: If it does not happen, we use the .reshape function with -1, 1 argument
+        Solution: If it does not happen, we use the .reshape function with -1, 1 argument, of course the second argument depends on the number of futures we are working with.
             - values() method returns a list, an array, a numpy array with the values: numpy.ndarray
-            - If we do not specify the method values(), we get a pandas.core.series.Series
+            - If we do not specify the method values(), we get a pandas.core.series
             
         (x, 1) = 2 dimensional = (1, x)
         
@@ -53,12 +59,14 @@ print(y.shape, X.shape)
 # THIS IS USEFULL TO FIND CORRELATIONS
 
 import matplotlib.pyplot as plt
+import scipy.stats as st 
 axis_x = '' # FROM FEATURES VARIABLE
 plt.scatter(df[axis_x].values, y)
 plt.ylabel(target_column)
 plt.xlabel(axis_x)
 plt.show()
 
+df_corr = pd.DataFrame(columns=['future', 'correlation'])
 # Another option...
 for i in df.columns:
     axis_x = i
@@ -66,7 +74,16 @@ for i in df.columns:
     plt.ylabel(target_column)
     plt.xlabel(axis_x)
     plt.show()
+    # Get correlation
+    slope_beta, intercept_alpha, correl_r, p_value, standard_error = st.linregress(df[i].values, y) 
+    # The order of x and y does not affect the correlation coefficient (r),
+    # only the slope and intercept of the regression line.
+    # The correlation coefficient (r) is invariant to the order of x and y.
+    df_corr.loc[len(df_corr)] = [
+        i,
+        correl_r]
     
+
 # DATA ALREADY PREPARED
 
 """
@@ -100,9 +117,9 @@ About the number of features that could recieve to fit and predict:
     ya que él estima un coeficiente (βi) por cada una.
 """
 from sklearn.linear_model import LinearRegression
-model = LinearRegression
+model = LinearRegression()
 # CODE - WORKING WITH ONE FEATURE
-X_one = X[:, 1]
+X_one = X[:, 1].reshape(-1, 1) ###### Reshape your data if there is an error... remember, the functions will expect 2D array
 model.fit(X_one, y)
 # We could use the same X variable if we do not have more new data to predict 
 X_new = X_one
@@ -148,7 +165,7 @@ RSS = The residual sum of squares - Lost function since we want to minimize it:
 ALSO KNOWN AS MSE UNDIVIDED BY n
 
 '''
-
+#########################
 '''
 Two features:
 What if I want to fit and predict with too many features?
@@ -156,13 +173,13 @@ We previously take only one featues from our features to create our model.
     
 When we have two features, x1, and x2, and one target…
     There is a difference between Statsmodel and Scikit, the way to fit a model is different here, while with Statsmodel we do not need to pass arguments…
-    To fit a regression model with Scikit of 2 features, we get 3 variables…
+    To fit a regression model with Scikit of 2 features, we obtain 3 variables…
     - coefficient for feature 1 = a_1
     - coefficient for feature 2 = a_2
     - intercept = b
 
 '''
-
+#########################
 '''
 MULTIPLE LINEAR REGRESSION MODEL:
     When adding more features, it is known as multiple linear regression. Fitting a multiple linear regression model means specifying a coefficient, a n, for n number of features, and b. 
@@ -174,7 +191,7 @@ MULTIPLE LINEAR REGRESSION MODEL:
 from sklearn.linear_model import LinearRegression
 from sklearn.model_selection import train_test_split
 
-X_train, X_test, y_train, y_test = train_test_split(X, y, test_size = 0.3, random_state = 42, stratify = y)
+X_train, X_test, y_train, y_test = train_test_split(X, y, test_size = 0.3, random_state = 42) # The argument stratify = y is not useful with regresion models, only for classification models.
 
 reg_all = LinearRegression()
 reg_all.fit(X_train, y_train)
@@ -195,24 +212,52 @@ RSS with many variables:
 # HOW CAN I MEASURE/EXPLAIN THE TARGET´S VARIANCE?
 # We will use the same function that we used in KNN 
 
-print(reg_all.score(X_test, y_test))
+print('Split data: ', reg_all.score(X_test, y_test)) # R^2 DEPENDS ON THE SPLIT OF THE DATA
+print('Full dataset: ', reg_all.score(X, y)) # THIS GIVE US THE TESTING ACCURACY 
+# WE COULD GET THE TRAINING ACCURACY BY PASSING IT THE TRAINGIN SETS. This takes the squared distance between the real target and predicted target.
+'''
+Interpreation of outcomes
+¿Qué significa un R² = −2.80?
+R² = 1 → ajuste perfecto
+R² = 0 → el modelo es tan bueno como predecir la media de y
+R² < 0 → el modelo es peor que predecir la media
+
+−2.80 significa que tu modelo:
+Comete mucho más error que un modelo trivial
+No está capturando la relación entre X y y
+Generaliza muy mal al conjunto de test
+En términos simples:
+“Si ignorara X y siempre predijera el promedio de y, lo haría mucho mejor.”
+
+Relación no lineal entre X e y
+Features irrelevantes o mal escaladas
+Outliers fuertes
+Muy pocos datos
+Train/test split poco representativo
+Multicolinealidad extrema
+Target ruidoso
+'''
+##############################
 """
 .SCORE - This is not a loss function of course:
     REMEMBER THAT IT DOES NOT HAVE THE SAME FORMULA IN REGRESSION WITH KNN MODELS FOR EXAMPLE
 
-What it did?
+What did?
 y_pred = knn.predict(X_test)
 R^2 or mean, depends on the model
 
-IN THIS CASE (AND ALL THE Linear Regression CASES (even fon Ridge since it is a regression model)):
+IN THIS CASE (AND ALL THE Linear Regression CASES (even for Ridge since it is a regression model)):
     The default metric for linear regression is R-squared, which quantifies the amount of variance in the target variable that is explained by the features. 
     
     
 R^2 IS NOT EQUALS RSS
-
+    * R^2 explains, and it is obtained by squaring the correlations 
+    * RSS = The residual sum of squares - Loss function since we want to minimize it
+    
 R^2 = 1 - (RSS/TSS)
+The loss is used to fit the model on the data, and the score is used to see how well we're doing. 
 """
-
+############################
 '''
 MORE LOSS FUNCTIONS FOR LINEAR REGRESSION MODELS:
    
@@ -234,11 +279,35 @@ MSE is used to optimize but RMSE not at all.
 '''
 
 # CODE:
-from sklearn.metrics import mean_squared_eror #MSE
+from sklearn.metrics import mean_squared_error #MSE
 # Remember that it is a loss function, so we pass it as arguments the y_predicted and y_test
-mse = mean_squared_eror(y_test, y_pred, squared = False)
-# As you noticed, we could use the same function to compute the RMSE, we only need to change the last argument to True.
-rmse = mean_squared_eror(y_test, y_pred, squared = True)
+mse = mean_squared_error(y_test, y_pred)
+
+rmse = np.sqrt(mse)
+"""
+About RMSE
+Dado que obtuvimos un r^2 alto...
+Esto indica una contradicción aparente:
+RMSE parece pequeño
+R² es muy malo
+Eso suele significar que:
+    * y tiene varianza extremadamente baja
+    * El baseline (media) ya explica casi todo
+    * Tu modelo introduce ruido
+    
+RMSE interpretation depends on the type of the project, in finance for example has a different interpreation"""
+rmse_baseline = np.sqrt(
+    mean_squared_error(y_test, np.full_like(y_test, y_train.mean()))
+)
+'''
+If we compare both outcomes...
+Tu modelo es casi 2 veces peor que predecir la media.
+Eso confirma exactamente lo que sospechabas:
+y tiene varianza extremadamente baja
+El baseline ya captura casi todo
+El modelo solo mete ruido
+En este escenario, NO hay nada que “arreglar” del modelo lineal como tal.'''
+
 
 ###################################
 # CROSS VALIDATION - Dealing with assessment dependency in a split set.
@@ -255,9 +324,9 @@ of the model's ability to generalize to unseen data.
 To combat this dependence on what is essentially a random split, we use a technique called cross-validation.
 
 KEYS:
-    Allow us to compare differente machine learning methods annd get a sense of how well they will work in practice
+    Allow us to compare different machine learning methods and get a sense of how well they will work in practice
     Starts dividing the data, then uses one block to testing and the remaining to traing, then it uses the next block and the remaining to testing and so on.
-    In the end every block of data is used for testing and we can compare methofd by seeing how well they permormed.
+    At the end every block of data is used for testing and we can compare methods by seeing how well they permormed.
     
 FOUR FOLD CROSS VALIDATION
 We divided the data into 4 blocks
@@ -272,7 +341,7 @@ In practice it is very common to divide the data into 10 blocks
 from sklearn.model_selection import cross_val_score, KFold
 
 # The next line only define about the split of data, the blocks features that we want.
-kf = KFold(n_splits = 6, shuffle = True, random_state = 42)
+kf = KFold(n_splits = 6, shuffle = False, random_state = 42)
 """
 El argumento shuffle en KFold (de sklearn.model_selection) controla si los datos se mezclan aleatoriamente antes de dividirse en los pliegues (folds).
 Por defecto, shuffle=False, lo que significa: Los datos se dividen en el orden en que están en el dataset.
@@ -508,4 +577,3 @@ confusion_matrix(y_test, y_pred)
 print(classification_report(y_test, y_pred))
 
 
-    
