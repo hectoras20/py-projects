@@ -1,4 +1,0 @@
-# Docker en scripts
-Docker es una herramienta que permite crear, implementar y ejecutar aplicaciones en contenedores, asegurando que funcionen de manera consistente en cualquier entorno. Facilita el empaquetado de código, dependencias y configuraciones en un solo contenedor liviano.
-
-En este proyecto, el archivo Dockerfile establece un entorno para ejecutar scripts, mientras que el archivo .yml define los servicios necesarios para su implementación, como la construcción del contenedor y el mapeo de volúmenes. Esto es útil para automatizar y gestionar procesos relacionados con scripts o configuraciones de servidores.

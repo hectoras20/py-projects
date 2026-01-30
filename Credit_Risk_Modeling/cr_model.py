@@ -1,0 +1,255 @@
+import pandas as pd
+import matplotlib.pyplot as plt
+import numpy as np
+
+from sklearn.linear_model import LogisticRegression
+from sklearn.model_selection import train_test_split
+from pathlib import Path
+
+
+
+# What exactly is credit risk? 
+# Credit risk is the risk that someone who has borrowed money will not repay it all.
+# A loan is in default when the lending agency is reasonably certain the loan will not be repaid. 
+# We will use machine learning models to determine this.
+
+# EXPECTED LOSS
+# Expected loss is a simple calculation of the following three components multiplied. 
+# 1. The probability of default, which is the likelihood someone will default on a loan. 
+# 2. The exposure at default which is the amount outstanding at the time of default. 
+# 3. The loss given default which is the ratio of the exposure against any recovery from the loss. 
+
+# TYPES OF DATA 
+# For modeling probability of default we generally have two primary types of data available. 
+# 1. Application data, which is data that is directly tied to the loan application like loan grade, interes rate, amount. 
+# 2. Behavioral data, which describes the recipient(destinatario) of the loan, such as employment length, historical default, income.
+
+# DATA USED
+# The data we will use for our predictions of probability of default includes a mix. 
+# This is important because application data alone is not as good as application and behavioral data together.
+# Some of the columns available in the data set are personal income, the loan amount's percentage of the person's income, and credit history length. 
+# Consider the percentage of income. This could affect loan status if the loan amount is more than their income, because they may not be able to afford payments.
+
+# Our data has 32 thousand rows, which can be difficult to see all at once. Here is where we use cross tables using the crosstab function available within Pandas. 
+# We can use this function to help get a high level view of the data SIMILAR TO PIVOT TABLES IN EXCEL.
+
+# Your must be in the Credit_Risk_Modeling directory.
+try:
+    BASE_DIR = Path(__file__).resolve().parent
+except NameError:
+    BASE_DIR = Path().resolve()
+
+DATA_PATH = BASE_DIR / "data" / "cr_loan.csv"
+
+cr_loan = pd.read_csv(DATA_PATH)
+pd.crosstab(cr_loan['person_home_ownership'], cr_loan['loan_status'], values = cr_loan['loan_int_rate'], aggfunc = 'mean').round(2)
+
+# Exploring with visuals
+# In addition to using cross tables, we can explore the data set visually. Here, we use matplotlib to create a scatter plot of the loan's interest rate and the recipient's income. 
+# Just like the cross table, plots help us get a high level view of our data.
+
+plt.scatter(cr_loan['person_income'], cr_loan['loan_int_rate'], c = 'blue', alpha = 0.5)
+plt.xlabel('Personal Income')
+plt.ylabel('Loan Interest Rate')
+plt.show()
+
+# DATA PREPARATION - OUT FIRST STEP
+# When our data is properly prepared we reduce the training time of our machine learning models.
+#  Also, prepared data can also have a positive impact on the performance of our model. 
+# This is important because we want our models to predict defaults correctly as often as possible.
+
+    # 1. OUTLIER DETECTION AND REMOVAL - Fisrt type of preparation
+    # With outliers in our training data, our predictive models will have a difficult time estimating parameters like coefficients. 
+    # Think of the coefficients as how much each column or feature is weighted to determine the loan status.
+    # Outliers can cause columns to have a much higher or lower weight than normal.
+    # Imagine having an interest rate of 59,000 percent! - We could see that with crosstab
+
+# A way to detect outliers is to use visuals.
+plt.scatter(cr_loan['person_emp_length'], cr_loan['loan_int_rate'], c = 'blue', alpha = 0.5)
+plt.xlabel('Person Employment Lenght')
+plt.ylabel('Loan Interest Rate')
+plt.show()
+# Here, we can see that a couple records have a person's employment length -set at well over(muy superior a)- 100. 
+# This would suggest that two loan applicants are over 136 years old! This, for now at least, is not possible.
+
+# So, we know outliers are a problem and want to remove them, but how? 
+# We can easily use the drop method within the pandas package to remove rows from our data.
+indices = cr_loan[cr_loan['person_emp_length'] >= 60].index
+cr_loan.drop(indices, inplace=True)
+# Verifier
+plt.scatter(cr_loan['person_emp_length'], cr_loan['loan_int_rate'], c = 'blue', alpha = 0.5)
+plt.xlabel('Person Employment Lenght')
+plt.ylabel('Loan Interest Rate')
+plt.show()
+
+    # 2. RISK WITH MISSING DATA
+    # So, how do we handle missing data? Most often, it is handled in one of three ways. 
+    # Sometimes we need to replace missing values. 
+    # * This could be replacing a null with the average value of that column. 
+    # * Other times we remove the row with missing data all together. For example, if there are nulls in loan amount, we should drop those rows entirely. 
+    # * We sometimes keep missing values as well. This, however, is not the case with most loan data. Understanding the data will direct you towards one of these three actions.
+    
+    # For example, if the loan status is null, it's possible that the loan was recently processed in our system. 
+    # Sometimes there is a data delay, and additional time needed for processing. 
+    # In this case, we should just remove the whole row. 
+    # Another example is where the person's age is missing. 
+    # Here, we might be able to replace the missing age values with the median of everyone's age.
+
+# Finding missing data
+null_columns = cr_loan.columns[cr_loan.isnull().any()]
+cr_loan[null_columns].isnull().sum()
+
+# Replacing method
+# If we decide to replace missing data, we can call the fill-n-a method from Pandas along with aggregate functions. This will replace only missing values
+cr_loan['loan_int_rate'].fillna( (cr_loan['loan_int_rate'].mean()) , inplace = True)
+
+# Dropping Method
+indices_drop = cr_loan[cr_loan['person_emp_length'].isnull()].index
+cr_loan.drop(indices_drop, inplace = True)
+
+# Verifier
+null_columns = cr_loan.columns[cr_loan.isnull().any()]
+cr_loan[null_columns].isnull().sum()
+
+
+# LOGISTIC REGRESSION FOR POBABILITY OF DEFAULT - SECOND STEP
+# Recall that the probability of default is the likelihood that someone will fail to repay a loan. 
+# This is expressed as a probability which is a value between zero and one. 
+# These probabilities are associated with our LOAN STATUS COLUMN where a 1 is a default, and a 0 is a non default.
+
+# The resulting predictions give us probabilities of default. The closer the value is to 1, the higher the probability of the loan being a default.
+# The class is default or non-default in this case...
+    
+# IN THE INDUSTRY, two models are used frequently. 
+# These are logistic regressions, and decision trees. Both of these models can predict the probability of default, and tell us how important each column is for predictions  
+
+    # 1. LOGISCTIC REGRESSION
+    # The logistic regression is like a linear regression but only produces a value between 0 and 1. 
+    # Notice that the equation for the linear regression is actually part of the logistic regression. 
+    # Logistic regressions perform better on data when what determines a default or non-default can vary greatly.
+
+# Using the logistic regression within scikit learn
+# Like any function, you can pass in parameters or not. The solver parameter is an optimizer, just like the solver in Excel. LBFGS is the default
+clf_logistic_one = LogisticRegression(solver='lbfgs')
+
+# KEY: Interest rates are easy to understand, but what how useful are they for predicting the probability of default?
+X_one = cr_loan[['loan_int_rate']]
+y = cr_loan[['loan_status']]
+
+clf_logistic_one.fit(X_one, np.ravel(y))
+
+# Printing the parameters of the model
+print('COEFFICIENTS OF THE MODEL with a single feature: ', clf_logistic_one.coef_)
+
+# Printing the intercept of the model
+print('INTERCEPT OF THE MODEL with a single feature: ', clf_logistic_one.intercept_)
+
+# Generally, we won't use only loan_int_rate to predict the probability of default. We will want to use all the data you have to make predictions.
+# Will this model differ from the first one? 
+# For this, we can easily check the .intercept_ of the logistic regression. 
+# REMEMBER that this is the y-intercept of the function and the overall log-odds of non-default.
+
+X_multi = cr_loan[['loan_int_rate','person_emp_length']]
+
+# Creating and training a new logistic regression
+clf_logistic_multi = LogisticRegression(solver='lbfgs').fit(X_multi, np.ravel(y))
+
+# Print the intercept of the model
+print('INTERCEPT OF THE MODEL with two features:', clf_logistic_multi.intercept_)
+
+# NOW, the new clf_logistic_multi model has an .intercept_ value closer to zero. This means the log odds of a non-default is approaching zero.
+
+# Our workflow is now:
+X = cr_loan[['loan_int_rate','person_emp_length','person_income']]
+
+# Generally, in machine learning, we split our entire data set into two individual data sets.
+X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=.4, random_state=123)
+
+clf_logistic = LogisticRegression(solver='lbfgs').fit(X_train, np.ravel(y_train))
+
+print('COEFFICIENTS OF THE MODEL with 3 features :', clf_logistic.coef_)
+
+########################################################################################################################
+# THE BEST PART - UNDESTANDING THE MODEL
+# PREDICTING THE PROBABILITY OF DEFAULT - HOW IT WORKS?
+# We previously saw the intercept and coefficients for our model. 
+# These coefficients the importance of each column.
+
+# "Each coefficient is multiplied by the values in the column, and then added together along with the intercept. Then, 1 is divided by the sum of 1 and e to the negative power of our intercept coefficient sums. The result is the probability of default". 
+intercept = clf_logistic.intercept_[0]
+coefficients = clf_logistic.coef_[0]
+
+coef_int_rate = coefficients[0]
+coef_emp_length = coefficients[1]
+coef_income = coefficients[2]
+
+print(intercept, coef_int_rate, coef_emp_length, coef_income)
+
+# AND NOW, THIS IS WHAT THE MODEL DOES:
+# LET US TAKE AN OBSERVATION FROM THE TEST SET
+sample = X_test.iloc[0]
+
+loan_int_rate = sample['loan_int_rate']
+person_emp_length = sample['person_emp_length']
+person_income = sample['person_income']
+
+# 1. Linear sum - log-odds
+linear_sum = (
+    intercept
+    + coef_int_rate * loan_int_rate
+    + coef_emp_length * person_emp_length
+    + coef_income * person_income
+)
+
+# 2: Logistic Function (sigmoid)
+prob_default = 1 / (1 + np.exp(-linear_sum))
+prob_non_default = 1 - prob_default
+
+print("Default Probability:", prob_default)
+print("No default Probability:", prob_non_default)
+
+# Validator
+model_prob = clf_logistic.predict_proba(X_test.iloc[[0]])[0][1]
+
+print("Manual Probability:", prob_default)
+print("Sklearn Probability:", model_prob)
+# BOOOM
+
+########################################################################################################################
+# INTERPRETING COEFFICIENTS - ANOTHER KEY 
+# Consider employment length as an example. I've already calculated the intercept and coefficient for a logistic regression using this one column.
+X_one = cr_loan[['person_emp_length']]
+
+clf_logistic_one.fit(X_one, np.ravel(y))
+print('COEFFICIENTS OF THE MODEL with a single feature: ', clf_logistic_one.coef_)
+print('INTERCEPT OF THE MODEL with a single feature: ', clf_logistic_one.intercept_)
+
+# What this coefficient tells us is the log odds for non-default. 
+# This means that for every 1 year increase in employment length, the person is less likely to default by a factor of the coefficient.
+person_emp_length_sample = np.arange(1, 21).reshape(-1, 1)
+probability_of_default = clf_logistic_one.predict_proba(person_emp_length_sample)[:, 1] # We take all the row values BUT those that are in the second column, since these are the default probabilities that concerned us. 
+plt.figure()
+plt.plot(person_emp_length_sample, probability_of_default)
+plt.xlabel("Employment Length (years)")
+plt.ylabel("Probability of Default")
+plt.title("Effect of Employment Length on Probability of Default")
+plt.show()
+# What we see here is that the higher a person's employment length is, the less likely they are to default.
+
+# We can use loan_int_rate to see that the higher the interest rates, the GREATER the probability of deafult we could have!!!!!
+X_one = cr_loan[['loan_int_rate']]
+
+clf_logistic_one.fit(X_one, np.ravel(y))
+print('COEFFICIENTS OF THE MODEL with one single feature: ', clf_logistic_one.coef_)
+print('INTERCEPT OF THE MODEL with one single feature: ', clf_logistic_one.intercept_)
+
+# What this coefficient tells us is the log odds for non-default. 
+# This means that for every 1 year increase in employment length, the person is less likely to default by a factor of the coefficient.
+person_emp_length_sample = np.arange(1, 21).reshape(-1, 1)
+probability_of_default = clf_logistic_one.predict_proba(person_emp_length_sample)[:, 1] # We take all the row values BUT those that are in the second column, since these are the default probabilities that concerned us. 
+plt.figure()
+plt.plot(person_emp_length_sample, probability_of_default)
+plt.xlabel("Loan Interest Rate")
+plt.ylabel("Probability of Default")
+plt.title("Effect of Loan Interest Rate on Probability of Default")
+plt.show()
