@@ -1,9 +1,16 @@
 import pandas as pd
 import matplotlib.pyplot as plt
 import numpy as np
+import xgboost as xgb
 
 from sklearn.linear_model import LogisticRegression
 from sklearn.model_selection import train_test_split
+from sklearn.metrics import roc_curve
+from sklearn.metrics import classification_report
+from sklearn.metrics import precision_recall_fscore_support
+from sklearn.metrics import roc_auc_score
+from sklearn.metrics import confusion_matrix
+
 from pathlib import Path
 
 
@@ -106,6 +113,8 @@ cr_loan['loan_int_rate'].fillna( (cr_loan['loan_int_rate'].mean()) , inplace = T
 # Dropping Method
 indices_drop = cr_loan[cr_loan['person_emp_length'].isnull()].index
 cr_loan.drop(indices_drop, inplace = True)
+
+cr_loan.dropna()
 
 # Verifier
 null_columns = cr_loan.columns[cr_loan.isnull().any()]
@@ -246,6 +255,7 @@ print('INTERCEPT OF THE MODEL with one single feature: ', clf_logistic_one.inter
 # What this coefficient tells us is the log odds for non-default. 
 # This means that for every 1 year increase in employment length, the person is less likely to default by a factor of the coefficient.
 person_emp_length_sample = np.arange(1, 21).reshape(-1, 1)
+# Probabilities = [[non-deafult, default]]
 probability_of_default = clf_logistic_one.predict_proba(person_emp_length_sample)[:, 1] # We take all the row values BUT those that are in the second column, since these are the default probabilities that concerned us. 
 plt.figure()
 plt.plot(person_emp_length_sample, probability_of_default)
@@ -253,3 +263,187 @@ plt.xlabel("Loan Interest Rate")
 plt.ylabel("Probability of Default")
 plt.title("Effect of Loan Interest Rate on Probability of Default")
 plt.show()
+
+# USING NO NUMERIC COLUMNS... ONE HOT ENCODING
+    # The main idea is to represent a string with a numeric value.
+    # For this, we use the get dummies function within pandas.
+    # 1. First, we separate the numeric and non-numeric columns from the data into two sets.
+    # 2. Then we use the get dummies function to one-hot encode only the non-numeric columns. 
+    # 3. We union the two sets and the result is a full data set that's ready for machine learning!
+
+cred_num = cr_loan.select_dtypes(exclude=['object'])
+
+cred_cat = cr_loan.select_dtypes(include=['object'])
+
+cred_cat_onehot = pd.get_dummies(cred_cat)
+
+cr_loan = pd.concat([cred_num, cred_cat_onehot], axis=1)
+
+# Printing the columns in the new data set
+print(cr_loan.columns)
+
+# Now we can do the same workflow to set a model...
+X = cr_loan.drop('loan_status', axis=1).dropna()
+y = cr_loan[['loan_status']]
+X_train, X_test, y_train, y_test = train_test_split(X, y, random_state=123) 
+
+clf_logistic = LogisticRegression(solver='lbfgs').fit(X_train, np.ravel(y_train))
+
+preds = clf_logistic.predict_proba(X_test)
+
+# Create dataframes of first five predictions, and first five true labels
+preds_df = pd.DataFrame(preds[:,1][0:5], columns = ['prob_default'])
+true_df = y_test.head(5)
+
+# Concatenate and print the two data frames for comparison
+print(pd.concat([true_df.reset_index(drop = True), preds_df], axis = 1))
+
+
+########################################################################################################################
+# CREDIT MODEL PERFORMANCE
+# The easiest way to analyze performance is with accuracy.
+# One way to check this is to use the score method within scikit-learn on the logistic regression. 
+# This is used on the trained model and returns the average accuracy for the test set. 
+# Using the score method will display this accuracy as a percentage.
+
+clf_logistic.score(X_test, y_test)
+
+# ROC CURVE CHARTS
+# R-O-C charts are a great way to visualize the performance of our model.
+# They plot the true positive rate, the percentage of correctly predicted defaults, against the false positive rate, the percentage of incorrectly predicted defaults.
+
+prob_default = preds[:, 1] #KEY
+fallout, sensitivity, threshold = roc_curve(y_test, prob_default)
+
+plt.figure()
+plt.plot(fallout, sensitivity, color = 'darkorange')
+plt.plot(fallout, fallout, color = 'blue', linestyle='--')
+plt.show()
+# The  blue line represents a random prediction
+# The orange line represents our model's predictions.
+
+# But how can we interpretate it?
+    # R-O-C charts are interpreted by looking at how far away the model's curve (ORANGE LINE) gets from the dotted blue line shown here, which represents the random prediction. 
+    # This movement away from the line is called lift. 
+    # The more lift we have, the larger the area under the curve gets, which is something that we want.
+    # The A-U-C is the calculated area between the curve and the random prediction. 
+    # This is a direct indicator of how well our model makes predictions.
+auc = roc_auc_score(y_test, prob_default)  # actual defaults vs prob. computed
+
+# THRESHOLDS
+
+# 1. We will first need to create a variable to store the predicted probabilities. We already did this point with the variable preds = clf_logistic.predict_proba(X_test)
+# 2. Then we can create a data frame from the second column OF PREDS which contains the probabilities of default. Remember preds = [prob. non deault, prob. default]
+# 3. Then we apply a quick function to assign a value of 1 if the probability of default is above our threshold of 0.5. 
+
+preds = clf_logistic.predict_proba(X_test) # KEY
+preds_df = pd.DataFrame(preds[:, 1], columns = ['prob_default']) 
+preds_df['loan_status'] = preds_df['prob_default'].apply(lambda x : 1 if x > 0.5 else 0)
+
+print(preds_df['loan_status'].value_counts())
+# The result of this is a data frame with new values for loan status based on our threshold.
+
+# THRESHOLD WORKS WITH THE CONFUSSION MATRIX, so we can se if we get a better performance setting new thresholds. 
+#####################################
+# CREDIT CLASSIFICATION REPORTS - NEW
+# This will show us several different evaluation metrics all at once! 
+# We use this function to evaluate our model using our true values for loan status stored in the y_test set, and our predicted loan status values from our logistic regression and the threshold we set.
+
+target_names = ['Non-Default', 'Default']
+class_report = classification_report(y_test, preds_df['loan_status'], target_names = target_names)
+
+# There are 2 really useful metrics in this table, and they are the precision and recall. 
+# But for now, let's focus on recall.
+# RECALL
+    # The definition of default recall, also called sensitivity, is the proportion of actual positives correctly predicted.
+    # Recall - Default = That means we correctly predicted ___ percent of defaults, and incorrectly predicted __ percent of defaults (complement of the first given value)
+    
+    # Precision recall fscore support function within sci-kit learn. 
+    # With this function, we can get the recall for defaults from by subsetting the report the way we would any array. Here we select the second value from the second set.
+
+precision_recall_fscore_support(y_test, preds_df['loan_status'])[1][1]
+#################################
+# MODEL DISCRIMINATION AND IMPACT
+# Confusion Matrix
+
+# Since we already did: preds_df['loan_status'] = preds_df['prob_default'].apply(lambda x : 1 if x > 0.5 else 0)
+# With the previus line of code we can set new thresholds.
+print(confusion_matrix(y_test,preds_df['loan_status']))
+# We can adjust the threshold and see if we get a better performance-
+
+# Precision(0) = TN/(TN+FN) ||
+# Precision(1) = TP/(TP+FP) ||
+# Recall(0) = TN/(TN+FP) -- 
+# Recall(1) = TP/(TP+FN) --
+
+# IDEA
+results = pd.DataFrame(columns=['threshold', 'non-def_recall', 'default_recall', 'estimated impact loss'])
+avg_loan_amnt = 50 # dollas
+row = 0  
+
+for threshold in np.arange(0, 1.1, 0.1):
+    preds_df['loan_status'] = preds_df['prob_default'].apply(lambda x: 1 if x > threshold else 0)
+
+    conf_matrix = confusion_matrix(y_test, preds_df['loan_status'])
+
+    # Recall = TP / (TP + FN)
+    default_recall = conf_matrix[1, 1] / (conf_matrix[1, 1] + conf_matrix[1, 0])
+    non_def_recall = conf_matrix[0, 0] / (conf_matrix[0, 0] + conf_matrix[0, 1])
+
+    num_defaults = preds_df['loan_status'].value_counts().get(1, 0)
+
+    # Calculating the estimated impact of the new default recall rate
+    impact = avg_loan_amnt * num_defaults * (1 - default_recall)
+
+    results.loc[row] = [threshold, non_def_recall, default_recall, impact]
+    row += 1  
+# That means we correctly predicted ___ percent of defaults, and incorrectly predicted __ percent of defaults (complement of the first given value)
+
+# Ploting performance
+plt.plot(results['threshold'], results['default_recall'])
+plt.plot(results['threshold'], results['non-def_recall'])
+plt.xlabel('Probability Threshold')
+plt.legend(['Default Recall", "Non-default Recall'])
+plt.show() 
+
+# INTERPRETATION
+# Approximately what starting threshold value would maximize these scores evenly? Looking at the graph... 0.275
+# Because it's the point where all lines converge. 
+# This threshold would make a great starting point, but declaring all loans about 0.275 to be a default is probably not practical.
+
+########################################################################################################################
+# GRADIENT BOOSTED TREES WITH XGBOOST
+# Decision Trees are machine learning models which use decisions as steps in a process to eventually identify our loan status.
+# The xgboost package train similar to logistic regression models.
+
+clf_gbt = xgb.XGBClassifier()
+clf_gbt.fit(X_train, np.ravel(y_train))
+
+# And we still do the same workflow...
+# Predicting with a model... We can use predict_proba to predict probabilities of default. 
+gbt_preds = clf_gbt.predict_proba(X_test)
+
+preds_df = pd.DataFrame(gbt_preds[:,1][0:5], columns = ['prob_default'])
+true_df = y_test.head(5)
+
+# Concatenate and print the two data frames for comparison
+print(pd.concat([true_df.reset_index(drop = True), preds_df], axis = 1))
+
+# AND USING PREDICT INSTEAD OF PREDICT_PROBAS, we can do things like...
+gbt_preds = clf_gbt.predict(X_test)
+
+target_names = ['Non-Default', 'Default']
+print(classification_report(y_test, gbt_preds, target_names=target_names))
+
+# These also have hyperparameters that affect how the model learns
+# HYPERPARAMETERS CANNOT BE LEARNED FROM DATA, THEY HAVE TO BE SET BY US
+    # 1. The learning rate tells the model how quickly it should learn in each step of the ensemble. 
+    # The smaller the value, the more conservative it is at each step. 
+    # 2. The max depth tells the model how deep each tree can go. 
+    # Keeping this value low ensures the model is not too complex.
+
+xgb.XGBClassifier(learningn_rate = 0.2,
+                  max_depth = 4)
+
+
+
