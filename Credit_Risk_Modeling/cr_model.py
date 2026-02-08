@@ -10,6 +10,7 @@ from sklearn.metrics import classification_report
 from sklearn.metrics import precision_recall_fscore_support
 from sklearn.metrics import roc_auc_score
 from sklearn.metrics import confusion_matrix
+from sklearn.model_selection import cross_val_score
 
 from pathlib import Path
 
@@ -442,8 +443,128 @@ print(classification_report(y_test, gbt_preds, target_names=target_names))
     # 2. The max depth tells the model how deep each tree can go. 
     # Keeping this value low ensures the model is not too complex.
 
-xgb.XGBClassifier(learningn_rate = 0.2,
+xgb.XGBClassifier(learning_rate = 0.2,
                   max_depth = 4)
+
+########################################################################################################################
+# Does selecting specific columns affect model performance?
+# How do we know or can specify which are the most important for accurately predicting probability of default?
+    # For logistic regression models, we were looking at the coefficient of each column and interpreting that coefficient as a weight or measure of importance.
+    # For Gradiend Boosted Trees...
+
+# We already trained the model
+# Printing the column importances for the columns in clf_gbt by using .get_booster() and .get_score().
+clf_gbt.get_booster().get_score(importance_type = 'weight')
+# The argument 'weight' shows how many times the column appears in all the models' trees
+# This returns a dictionary of each column's name with the weight number as shown here.
+
+# Now we can plot these outcomes
+xgb.plot_importance(clf_gbt, importance_type='weight')
+# If we want to plot only 3 columns, the X_train set must contain 3 features.
+
+# CHOOSING TRAINING COLUMNS
+# Sometimes adding more columns increases accuracy, but it can also make it more difficult for the model to learn and decrease other performance metrics like default recall.
+# So, it can be difficult to use two metrics like accuracy and recall to gauge a model's performance. 
+# Fortunately, there is already a defined metric that combines both of these two into one.
+    # F1 SCORING FOR MODELS
+    # This is a combination of both precision and recall. 
+    # This is useful because it helps us keep recall for loan defaults as an important consideration for any model. 
+    # F1-Score = 2 * ((precision * recall) / (precision + recall))
+    # We can get it from the followign line of code:
+target_names = ['Non-Default', 'Default']
+print(classification_report(y_test, gbt_preds, target_names=target_names))
+
+########################################################################################################################
+# CROSS VALIDATION
+n_folds = 2 # This may change the shape of out graph.
+# This tells cross validation to stop when the score of the model has not improved after a set number of iterations.
+early_stop = 10 # So, we set the number of iterations we will allow before the simulations stop.
+# Next, we create a dictionary of parameters. 
+params = {'objective' : 'binary:logistic',
+          'seed' : '99',
+          'eval_metric': 'auc'}
+# The binary logistic parameter we created tells xgboost that we want to predict a 0 or 1 for loan status. 
+# The performance metric here is the area under the curve. This is the same metric we used on the logistic regression models.
+
+# Within XGBoost, to use cross validation we need to create a specialized object called dmatrix
+# Is just a different way of storing the training data.
+# So we transform our training data into the specialized dmatrix object for xgboost.
+DTrain = xgb.DMatrix(X_train, label = y_train)
+
+# Last, we call the cv function and pass in the data long with all the parameters dictionary.
+print(xgb.cv(params, DTrain, num_boost_round = 5, nfold = n_folds, early_stopping_rounds=early_stop))
+    # What the cv function produces is a data frame of training and test AUC scores for our model. 
+    # Think of this as a scenario analysis where we want to see how our model would perform as new loans come in.
+    # Here we see that the auc for the test and train set improves as the model trains on each fold. 
+    # This suggests that the performance will be stable.
+
+# PLOTING HOW IS THE PERFORMANCE IN RELATION WITH THE NUMBER OF FOLDS
+# The number of folds defined to see the performance must be at most, the number of iterations
+
+cv_results_big = xgb.cv(params, DTrain, num_boost_round = 55, nfold = n_folds, early_stopping_rounds=early_stop)
+cv_results_big.shape
+# THE CV_RESULTS_BIG SHAPE IS IMPORTANT TO KNOW IT (defined by num_boost_round) to define correctly the y label of our chart.
+
+print(cv_results_big.head())
+
+# Calculate the mean of the test AUC scores
+print(np.mean(cv_results_big['test-auc-mean']).round(2))
+
+# Plot the test AUC scores for each iteration
+plt.plot(cv_results_big['test-auc-mean'], np.arange(0, 55))
+plt.title('Test AUC Score Over 55 Iterations')
+plt.xlabel('Iteration Number')
+plt.ylabel('Test AUC Score')
+plt.show()
+# If we see that the line starts to go down is because this much cross-validation can actually cause the model to become overfit. 
+# So, there is a limit to how much cross-validation you should to.
+
+# CROSS VALIDATION SCORING
+# Within scikit-learn there is another helpful function that combines cross validation, and the accuracy scoring metrics we've seen so far.
+# This is used to automatically perform cross validation with data splitting, model training, and scoring all at once! 
+
+# We can create a gradient boosted tree model using two hyperparameters.
+gbt = xgb.XGBClassifier(learning_rate = 0.1, max_depth = 7)
+
+# Calculating the cross validation scores for 4 folds
+cv_scores = cross_val_score(gbt, X_train, np.ravel(y_train), cv = 4)
+
+print(cv_scores)
+
+# Print the average accuracy and standard deviation of the scores
+print("Average accuracy: %0.2f (+/- %0.2f)" % (cv_scores.mean(),
+                                              cv_scores.std() * 2))
+
+########################################################################################################################
+# CLASS IMBALANCE IN LOAN DATA
+    # The type of sampling we are going to perform is called undersampling. 
+    # What we will do is take a random sample of non-defaults and combine it with our defaults. 
+    # Imagine we have 100 loans where 80% are non-defaults. We will randomly sample only 20 of our non-defaults, and combine that with our set of 20 defaults. 
+    # With this, we have a balanced training set of 20 defaults and 20 non-defaults.
+
+# First, we concat the the training sets
+X_y_train = pd.concat([X_train.reset_index(drop = True),
+                      y_train.reset_index(drop = True)], axis = 1)
+
+# Now, we get the count of defaults and non defaults
+count_default, count_nondefault = X_y_train['loan_status'].value_counts()
+
+# Separating the classes
+non_defaults = X_y_train[X_y_train['loan_status'] == 0]
+defaults = X_y_train[X_y_train['loan_status'] == 1]
+
+# UNDERSAMPLING DATA
+# With that done, we randomly sample our non-defaults to be the same number of loans as our defaults. 
+# Then, we concatenate the two data sets together, and we have a balanced training set!
+non_defaults_under = non_defaults.sample(count_default)
+
+
+
+
+
+
+
+
 
 
 
