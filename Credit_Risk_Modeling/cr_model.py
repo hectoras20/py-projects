@@ -2,6 +2,7 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import numpy as np
 import xgboost as xgb
+import matplotlib
 
 from sklearn.linear_model import LogisticRegression
 from sklearn.model_selection import train_test_split
@@ -11,9 +12,9 @@ from sklearn.metrics import precision_recall_fscore_support
 from sklearn.metrics import roc_auc_score
 from sklearn.metrics import confusion_matrix
 from sklearn.model_selection import cross_val_score
+from sklearn.calibration import calibration_curve
 
 from pathlib import Path
-
 
 
 # What exactly is credit risk? 
@@ -38,8 +39,6 @@ from pathlib import Path
 # Some of the columns available in the data set are personal income, the loan amount's percentage of the person's income, and credit history length. 
 # Consider the percentage of income. This could affect loan status if the loan amount is more than their income, because they may not be able to afford payments.
 
-# Our data has 32 thousand rows, which can be difficult to see all at once. Here is where we use cross tables using the crosstab function available within Pandas. 
-# We can use this function to help get a high level view of the data SIMILAR TO PIVOT TABLES IN EXCEL.
 
 # Your must be in the Credit_Risk_Modeling directory.
 try:
@@ -50,9 +49,35 @@ except NameError:
 DATA_PATH = BASE_DIR / "data" / "cr_loan.csv"
 
 cr_loan = pd.read_csv(DATA_PATH)
+
+# Crosstab and pivot tables
+# Our data has 32 thousand rows, which can be difficult to see all at once. Here is where we use cross tables using the crosstab function available within Pandas. 
+# We can use this function to help get a high level view of the data SIMILAR TO PIVOT TABLES IN EXCEL.
+print(pd.crosstab(cr_loan['loan_intent'], cr_loan['loan_status'], margins = True))
+print(pd.crosstab(cr_loan['person_home_ownership'],[cr_loan['loan_status'],cr_loan['loan_grade']]))
+print(pd.crosstab(cr_loan['person_home_ownership'], cr_loan['loan_status'], values=cr_loan['loan_percent_income'], aggfunc='mean'))
+
 pd.crosstab(cr_loan['person_home_ownership'], cr_loan['loan_status'], values = cr_loan['loan_int_rate'], aggfunc = 'mean').round(2)
 
-# Exploring with visuals
+
+####### We can now do things like...
+# Create the cross table for loan status, home ownership, and the max employment length
+print(pd.crosstab(cr_loan['loan_status'],cr_loan['person_home_ownership'],
+                  values=cr_loan['person_emp_length'], aggfunc='max'))
+
+# Create an array of indices where employment length is greater than 60
+indices = cr_loan[cr_loan['person_emp_length'] > 60].index
+
+# Drop the records from the data based on the indices and create a new dataframe
+cr_loan_new = cr_loan.drop(indices)
+
+# Create the cross table from earlier and include minimum employment length
+print(pd.crosstab(cr_loan_new['loan_status'],cr_loan_new['person_home_ownership'],
+                  values=cr_loan_new['person_emp_length'], aggfunc=['min','max']))
+
+
+
+# Exploring with visuals - Finding outliers
 # In addition to using cross tables, we can explore the data set visually. Here, we use matplotlib to create a scatter plot of the loan's interest rate and the recipient's income. 
 # Just like the cross table, plots help us get a high level view of our data.
 
@@ -90,6 +115,24 @@ plt.xlabel('Person Employment Lenght')
 plt.ylabel('Loan Interest Rate')
 plt.show()
 
+
+# Now we can do things like...
+# Use Pandas to drop the record from the data frame and create a new one
+cr_loan_new = cr_loan.drop(cr_loan[cr_loan['person_age'] > 100].index)
+
+# Create a scatter plot of age and interest rate
+colors = ["blue","red"]
+plt.scatter(cr_loan_new['person_age'], cr_loan_new['loan_int_rate'],
+            c = cr_loan_new['loan_status'], # “El color de cada punto depende del valor de esta variable”.
+            cmap = matplotlib.colors.ListedColormap(colors),
+            alpha=0.5)
+plt.xlabel("Person Age")
+plt.ylabel("Loan Interest Rate")
+plt.show()
+# Los puntos rojos son préstamos que terminaron en DEFAULT
+#  Los puntos azules son préstamos que NO cayeron en default
+########################################################################################################################
+
     # 2. RISK WITH MISSING DATA
     # So, how do we handle missing data? Most often, it is handled in one of three ways. 
     # Sometimes we need to replace missing values. 
@@ -103,24 +146,45 @@ plt.show()
     # Another example is where the person's age is missing. 
     # Here, we might be able to replace the missing age values with the median of everyone's age.
 
+# OBSERVATIONS
+# 1. Financial variables often contain skewness and outliers. The median provides a more robust central estimate.
+# 2. Removing all missing values can unnecessarily reduce sample size and potentially bias the dataset.
+
+
 # Finding missing data
 null_columns = cr_loan.columns[cr_loan.isnull().any()]
-cr_loan[null_columns].isnull().sum()
+print(cr_loan[null_columns].isnull().sum())
+
+# We can also see the rows with null values into a specific column...
+# Printing the top five rows with nulls for employment length
+print(cr_loan[cr_loan['person_emp_length'].isnull()].head())
 
 # Replacing method
 # If we decide to replace missing data, we can call the fill-n-a method from Pandas along with aggregate functions. This will replace only missing values
-cr_loan['loan_int_rate'].fillna( (cr_loan['loan_int_rate'].mean()) , inplace = True)
+
+cr_loan['loan_int_rate'] = cr_loan['loan_int_rate'].fillna(
+    cr_loan['loan_int_rate'].median()
+)
+
+# or...
+cr_loan['person_emp_length'] = cr_loan['person_emp_length'].fillna(
+    cr_loan['person_emp_length'].median()
+)
 
 # Dropping Method
-indices_drop = cr_loan[cr_loan['person_emp_length'].isnull()].index
-cr_loan.drop(indices_drop, inplace = True)
+# Print the number of nulls
+print(cr_loan['loan_int_rate'].isnull().sum())
 
-cr_loan.dropna()
+# Drop rows where critical variables still contain nulls
+cr_loan = cr_loan.dropna(subset=['loan_amnt'])
 
 # Verifier
 null_columns = cr_loan.columns[cr_loan.isnull().any()]
-cr_loan[null_columns].isnull().sum()
+print(cr_loan[null_columns].isnull().sum())
 
+# cr_loan['emp_length_missing'] = cr_loan['person_emp_length'].isnull().astype(int)
+
+# Advice: We already have an all-inclusive class within person_home_ownership that stores all other types of home ownership as Other. With this, we eliminate missing data without affecting the data as a whole.
 
 # LOGISTIC REGRESSION FOR POBABILITY OF DEFAULT - SECOND STEP
 # Recall that the probability of default is the likelihood that someone will fail to repay a loan. 
@@ -345,6 +409,7 @@ print(preds_df['loan_status'].value_counts())
 # The result of this is a data frame with new values for loan status based on our threshold.
 
 # THRESHOLD WORKS WITH THE CONFUSSION MATRIX, so we can se if we get a better performance setting new thresholds. 
+
 #####################################
 # CREDIT CLASSIFICATION REPORTS - NEW
 # This will show us several different evaluation metrics all at once! 
@@ -542,26 +607,337 @@ print("Average accuracy: %0.2f (+/- %0.2f)" % (cv_scores.mean(),
     # Imagine we have 100 loans where 80% are non-defaults. We will randomly sample only 20 of our non-defaults, and combine that with our set of 20 defaults. 
     # With this, we have a balanced training set of 20 defaults and 20 non-defaults.
 
+X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=100, random_state=123) # test_size may change the default value count 
+
 # First, we concat the the training sets
 X_y_train = pd.concat([X_train.reset_index(drop = True),
                       y_train.reset_index(drop = True)], axis = 1)
 
 # Now, we get the count of defaults and non defaults
-count_default, count_nondefault = X_y_train['loan_status'].value_counts()
+count_nondefault, count_default = X_y_train['loan_status'].value_counts() # !!!! BE CAREFUL WITH THE ORDERING OF THE VARIABLES
 
 # Separating the classes
 non_defaults = X_y_train[X_y_train['loan_status'] == 0]
 defaults = X_y_train[X_y_train['loan_status'] == 1]
 
 # UNDERSAMPLING DATA
+####### !!!!! Hacer undersampling SOLO sobre el training set!!!!!######
 # With that done, we randomly sample our non-defaults to be the same number of loans as our defaults. 
 # Then, we concatenate the two data sets together, and we have a balanced training set!
-non_defaults_under = non_defaults.sample(count_default)
+nondefaults_under = non_defaults.sample(count_default) # Take a sample of the same size as the default value count
+
+# Concatenate the undersampled nondefaults with defaults
+X_y_train_under = pd.concat([nondefaults_under.reset_index(drop = True),
+                             defaults.reset_index(drop = True)], axis = 0)
+
+# Print the value counts for loan status
+print(X_y_train_under['loan_status'].value_counts())
+
+######### Now, let us compare the performance of the new sample againts the old sample #########
+
+X = cr_loan.drop('loan_status', axis=1).dropna()
+y = cr_loan[['loan_status']]
+X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=100, random_state=123)
+
+# MODEL WITHOUT UNDERSAMPLING
+model1 = xgb.XGBClassifier()
+model1.fit(X_train, np.ravel(y_train))
+gbt_preds1 = model1.predict(X_test)
+target_names = ['Non-Default', 'Default']
+print('', classification_report(y_test, gbt_preds1, target_names=target_names))
+
+# VS
+
+# MODEL WITH UNDERSAMPLING
+X_train_under = X_y_train_under.drop('loan_status', axis=1).dropna()
+y_train_under = X_y_train_under[['loan_status']]
+model2 = xgb.XGBClassifier()
+model2.fit(X_train_under, np.ravel(y_train_under))
+gbt_preds2 = model2.predict(X_test)
+target_names = ['Non-Default', 'Default']
+print('', classification_report(y_test, gbt_preds2, target_names=target_names))
+
+# Matrix Confusion
+print(confusion_matrix(y_test,gbt_preds1))
+# VS
+print(confusion_matrix(y_test,gbt_preds2))
+precision_recall_fscore_support
+
+# roc_auc_score
+preds1 = model1.predict_proba(X_test) # KEY
+prob_default1 = preds1[:, 1] #KEY
+print(roc_auc_score(y_test, prob_default1))
+# print("GBT Not Undersampled AUC Score: %0.2f" % roc_auc_score(y_test, prob_default1))
+# VS
+preds2 = model2.predict_proba(X_test) # KEY
+prob_default2 = preds2[:, 1] #KEY
+print(roc_auc_score(y_test, prob_default2))
 
 
+########################################################################################################################
+
+# MODEL EVALUATION AND IMPLEMENTATION
+# We've fully developed two models to predict the probability of default (LOGISTIC REGRESSION AND GRADIENT BOOSTED TREE), and we need to use many different metrics to compare them to ensure we select the best one.
+
+# Classification reports.
+    # Macro average F-1 score. 
+    # The calculation behind the F1 score combines precision and recall to create a single metric and is shown here. 
+    # The unweighted average of the F1 scores for default and non-default is the macro average F1 score. 
+    # With this, we can use a single number to get a good understanding of each models' performance across defaults and non-defaults.
+
+# Printing the default F-1 scores for the model1 and model2
+print(precision_recall_fscore_support(y_test, gbt_preds1, average = 'macro')[2])
+print(precision_recall_fscore_support(y_test, gbt_preds2, average = 'macro')[2])
+
+# ROC charts and AUC scores. 
+    # The ROC chart will have a line for each model which allows us to compare the lift for both. 
+    # The greater the lift means that the AUC score is higher and the model has better performance overall for defaults and non-defaults.
+    # MORE LIFT IS BETTER, near to the left corner
+
+# ROC chart components
+fallout_1, sensitivity_1, thresholds_1 = roc_curve(y_test, gbt_preds1)
+fallout_2, sensitivity_2, thresholds_2 = roc_curve(y_test, gbt_preds2)
+
+# ROC Chart with both
+plt.plot(fallout_1, sensitivity_1, color = 'blue', label='%s' % 'Model1')
+plt.plot(fallout_2, sensitivity_2, color = 'green', label='%s' % 'Model2')
+plt.plot([0, 1], [0, 1], linestyle='--', label='%s' % 'Random Prediction')
+plt.title("ROC Chart for Model1-Not Undersampled and Model2-Undersampled on the Probability of Default")
+plt.xlabel('Fall-out')
+plt.ylabel('Sensitivity')
+plt.legend()
+plt.show()
+
+# MODEL CALIBRATION
+    # Another method we will use to compare models is to check how well calibrated their predicted probabilities are. 
+    # What this means is we want to be able to interpret these probabilities as a confidence level for default. 
+    # A model is well-calibrated when a sample of loans has an average predicted probability of default close to that sample's percentage of actual defaults. 
+    # For example...
+    # If we take 10 loans and their average predicted probability of default is 0.12, we expect 12% of the sample to be defaults. 
+    # If our model has an average predicted probability of default of 0.25 and that sample is 65% defaults, then we have several loans that we predicted to be non-default that are actually defaults which we are very costly.
+
+# To calculate these values we use the calibration curve function. It is imported from the sci-kit learn package like this, and is used on the test set and the predicted probabilities of default. 
+preds1 = model1.predict_proba(X_test) # KEY
+prob_default1 = preds1[:, 1] #KEY
+fraction_of_positives1, mean_predicted_value1  = calibration_curve(y_test, prob_default1, n_bins = 5)
+
+preds2 = model2.predict_proba(X_test) # KEY
+prob_default2 = preds2[:, 1] #KEY
+fraction_of_positives2, mean_predicted_value2  = calibration_curve(y_test, prob_default2, n_bins = 5) # The n-bins parameter sets the number of samples to take. So, with this example, our test data is split into 5 samples and the function will calculate the average predicted probability of default and percentage of true defaults for each sample.i
+
+# PLOTING CALIBRATION CURVES
+
+plt.plot([0, 1], [0, 1], 'k:', label='Perfectly calibrated')    
+plt.plot(mean_predicted_value1, fraction_of_positives1,
+         's-', label='%s' % 'Gradient Boosted tree Not Undersampled')
+plt.plot(mean_predicted_value2, fraction_of_positives2,
+         's-', label='%s' % 'Gradient Boosted tree Undersampled')
+plt.ylabel('Fraction of positives')
+plt.xlabel('Average Predicted Probability')
+plt.legend()
+plt.title('Calibration Curve')
+plt.show()
+# If the curve is up, it generates monetary losses; if the curve is down, it generates opportunity losses. It's more serious when it's up.
+
+# The result plots all our average predicted probabilities against all our percentage of actual defaults for each sample. Here, I used 20 samples.
+
+# INTERPRETATION!
+    # To interpret this plot, let's look at two different events. 
+    # One where the model is above the perfectly calibrated line, and one where it's below.
+    # WHEN IT IS ABOVE... 
+        # For example, if our average predicted probability of default was 0.56, but this sample contained 75% defaults. 
+        # Here is where we find the majority of our false negatives, which are quite costly. 
+        # Our model is having a difficult time accurately predicting the probability of default for the loans in this sample.
+    # WHEN IT IS BELOW
+        # For example, if the model's average predicted probability for the sample is 0.94 but the sample is only 66% defaults. 
+        # Here we will find most of our false positives. 
+        # These are missed opportunities for profit, but are not as damaging as the false negatives.
+
+# WE CAN ALSO MAKE COMPARISIONS BETWEEN THE LOGISTIC AND GBT MODEL, FITTING AND TRYING WITH DIFFERENT HYPERPARAMETERS
+
+########################################################################################################################
+
+# THRESHOLDS AND ACEPETANCE RATES
+    # Before we calculate the threshold, we need to understand a concept known as acceptance rate.
+    # this is a percentage of new loans that we accept with the goal of keeping the number of defaults in a portfolio below a certain numbe
+    
+    # IT SOUNDS LIKE VaR_PERCENTAGE% - RELATED WITH QUANTILES
+    
+    # For example if we want to accept 85% of all loans with the lowest probabilities of default, then our acceptance rate is 85%. 
+    # This means we reject 15% of all loans with the highest probabilities of default. 
+    # Instead of setting a threshold value, we want to calculate it to separate the loans we accept using our acceptance rate from the loans we reject. 
+    # This value will not be the same 85% that we used as an acceptance rate.
+
+    # WHAT THRESHOLD VALUE DO WE NEED TO REJECT THE TOP 15%?
+
+# Plot the predicted probabilities of default
+clf_gbt_preds = model1.predict_proba(X_test)[:, 1]
+
+plt.hist(clf_gbt_preds, color='blue', bins=40)
+
+# Calculate the threshold with quantile
+threshold = np.quantile(clf_gbt_preds, 0.85)
+
+# Add a reference line to the plot for the threshold
+plt.axvline(x=threshold, color='red')
+plt.show()
+
+    # And of course, In order to calculate this threshold we need to use the quantile function from numpy. 
+
+threshold = np.quantile(prob_default, 0.85)
+
+# Implementing it
+
+preds_df['loan_status'] = preds_df['prob_default'].apply(lambda x : 1 if x > threshold else 0)
+
+# If we want to make the same with our previous models we can do the following code:
+preds1 = model1.predict_proba(X_test) # KEY
+preds1_df = pd.DataFrame(preds1[:,1], columns = ['prob_default'])
+preds1_df['loan_status'] = preds1_df['prob_default'].apply(lambda x : 1 if x > threshold else 0)
+
+######## BAD RATE ########
+# BUT REMEMBER THAT THIS IS NOT PERFECT, INTO OUR ACCEPTED LOANS (even with the acceptation rate) there may be default accounts that actually were predicted as non default
+    # That is why we say that even though we've calculated an acceptance rate for our loans and set a threshold, there will still be some defaults in our accepted loans. 
+    # These are often in probability ranges where our model was not well-calibrated. 
+    # For our example, we accepted 85% of the loans, but not all of them are non-defaults as we might wish. 
+    # The bad rate is the percentage of accepted loans which are actually defaults. 
+    # So, our bad rate is a percentage of the 10,016 accepted loans.
+   
+# WITH THE DF PREVIUSLY CREATED, we do the following to compute the bad rate:
+
+# Firstly I will create test_pred_df that is a dataframe that contains true_loan_status  prob_default  pred_loan_status columns
+test_pred_df = pd.DataFrame({'true_loan_status' : y_test.values.ravel(),
+                            'prob_default' : preds1[:,1],
+                            'pred_loan_status' : (preds1[:, 1] > threshold).astype(int)})
+
+# Create a subset of only accepted loans
+accepted_loans = test_pred_df[test_pred_df['pred_loan_status'] == 0]
+
+# The calculation for the bad rate is the number of defaults in our accepted loans divided by the total number of accepted loans.
+bad_rate = np.sum(accepted_loans['true_loan_status']) / accepted_loans['true_loan_status'].count()
+
+########### MONETARY TERMS ############ CORSSTAB ############
+# Now, how can we see all of this in monetary terms? 
+
+# First, we need the loan amounts
+test_pred_df['loan_amnt'] = X_train['loan_amnt']
+
+# We need something like the confusion matrix but... more easily manipulated, that is why we use crosstab
+# Store the average loan amount
+avg_loan = np.mean(test_pred_df['loan_amnt'])
+
+# Set the formatting for currency, and print the cross tab
+pd.options.display.float_format = '${:,.2f}'.format
+print(
+    pd.crosstab(
+        test_pred_df['true_loan_status'],
+        test_pred_df['pred_loan_status']
+    ).apply(lambda x: x * avg_loan, axis=0)
+)
+# THE BAD RATE loan value is the last value.
+pd.reset_option('display.float_format')
 
 
+########################################################################################################################
+# CREDIT STRATEGY AND MINIMUM EXPECTED LOSS
+# OPTIMIZATION PROBLEM?
 
+# SELECTING ACCEPTANCE RATES
+accept_rates = [1.0, 0.95, 0.9, 0.85, 0.8, 0.75, 0.7, 0.65, 0.6, 0.55, 0.5, 0.45, 0.4, 0.35, 0.3, 0.25, 0.2, 0.15, 0.1, 0.05]
+thresholds = []
+bad_rates = []
+num_accepted = []
+
+# Creating a new df as we did preoviously with the necessary information
+preds = model1.predict_proba(X_test) # KEY, it contains the prob of deafult and non default per obervation contained in the X_test set
+# preds_df = pd.DataFrame(preds1[:,1], columns = ['prob_default']) # We only take the prob. of default of all the observations from the previous matrix created and then store it as a df
+# We cound access to the values simply doing preds1[:,1] but we storaged it as a df in the previous line of code
+
+test_pred_df = pd.DataFrame({'true_loan_status' : y_test.values.ravel(),
+                            'prob_default' : preds[:,1]})
+
+# Populate the arrays for the strategy table with a for loop
+for rate in accept_rates:
+    
+    # Calculate the threshold for the acceptance rate
+    thresh = np.quantile(test_pred_df['prob_default'], rate).round(3)
+    # Add the threshold value to the list of thresholds
+    thresholds.append(np.quantile(test_pred_df['prob_default'], rate).round(3))
+    
+    # Reassign the loan_status value using the threshold
+    test_pred_df['pred_loan_status'] = test_pred_df['prob_default'].apply(lambda x: 1 if x > thresh else 0)
+    
+    # Create a set of accepted loans using this acceptance rate
+    accepted_loans = test_pred_df[test_pred_df['pred_loan_status'] == 0]
+    # test_pred_df['num'] = accepted_loans.count
+    
+    # Calculate and append the bad rate using the acceptance rate
+    bad_rates.append(np.sum((accepted_loans['true_loan_status']) / len(accepted_loans['true_loan_status'])).round(3))
+    
+    # Adding accepted loans, adding average loan amount and estimating portfolio value
+    num_accepted.append(len(accepted_loans))
+
+# Create a data frame of the strategy table
+strat_df = pd.DataFrame(zip(accept_rates, thresholds, bad_rates, num_accepted),
+                        columns = ['Acceptance Rate','Threshold','Bad Rate', 'Num Accepted Loans'])
+
+avg_loan_amt = np.mean(X_test['loan_amnt'])
+strat_df['Avg Loan Amnt'] = avg_loan_amt
+
+strat_df['Estimated Value'] = (
+    (strat_df['Num Accepted Loans'] * (1 - strat_df['Bad Rate']) * strat_df['Avg Loan Amnt'])
+    -
+    (strat_df['Num Accepted Loans'] * strat_df['Bad Rate'] * strat_df['Avg Loan Amnt'])
+)
+
+
+# Print the entire table
+print(strat_df)
+
+# Visualize the distributions in the strategy table with a boxplot
+strat_df.boxplot()
+plt.show()
+
+# Plot the strategy curve
+plt.plot(strat_df['Acceptance Rate'], strat_df['Bad Rate'])
+plt.title('Acceptance Rate')
+plt.xlabel('Bad Rate')
+plt.ylabel('Acceptance and Bad Rates')
+plt.axes().yaxis.grid()
+plt.axes().xaxis.grid()
+plt.show()
+
+# Create a line plot of estimated value
+plt.plot(strat_df['Acceptance Rate'],strat_df['Estimated Value'])
+plt.title('Estimated Value by Acceptance Rate')
+plt.xlabel('Acceptance Rate')
+plt.ylabel('Estimated Value')
+plt.axes().yaxis.grid()
+plt.show()
+
+# Print the row with the max estimated value
+print(strat_df.loc[strat_df['Estimated Value'] == np.max(strat_df['Estimated Value'])])
+# With our credit data and our estimated averag loan value, we clearly see that the acceptance rate 0.85 has the highest potential estimated value. Normally, the allowable bad rate is set, but we can use analyses like this to explore other options.
+# En la vida real: El banco fija un bad rate máximo permitido (ej. 5%) Pero: Con este análisis puedes decir: “Oye, si aceptamos un poco más de riesgo, ganamos más dinero”
+# “…la tasa de aceptación de 0.85 maximiza el valor esperado, aunque implica asumir un mayor riesgo.”
+# …we see that an acceptance rate of 0.85 maximizes the expected value, despite implying a higher level of risk.
+
+####### Estimating portfolio value and Total expected loss #######
+# Print the first five rows of the data frame
+test_pred_df['loss_given_default'] = 1
+test_pred_df['loan_amnt'] = X_test['loan_amnt'].values
+
+# Calculate the bank's expected loss and assign it to a new column
+test_pred_df['expected_loss'] = test_pred_df['prob_default'] * test_pred_df['loan_amnt'] * test_pred_df['loss_given_default']
+
+# Calculate the total expected loss to two decimal places
+tot_exp_loss = round(np.sum(test_pred_df['expected_loss']),2)
+
+# Print the total expected loss
+print('Total expected loss: ', '${:,.2f}'.format(tot_exp_loss))
+
+# Note how many observations are in the test set; this is significant for the expected total loss.
+# len(test_pred_df)
 
 
 
