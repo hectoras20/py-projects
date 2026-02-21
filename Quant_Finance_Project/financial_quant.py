@@ -256,11 +256,11 @@ def corregir_año(año): # El año serán cada valor de la columna a la cual se 
         return '20' + año  # Asumimos que son años del 2000+
     return año
 
-def corrector(raw_data):
+def corrector(clean_data):
     #Empezamos con la depuración en un nuevo df
     df = pd.DataFrame()
-    df['Date'] = raw_data['Date']# Instead of: raw_data.iloc[:, 0]
-    df['Close'] = raw_data['Close']
+    df['Date'] = clean_data['Date']# Instead of: clean_data.iloc[:, 0]
+    df['Close'] = clean_data['Close']
     # Tratando los formatos 
     # DATE with the format 01.01.2025 there is not problem
     df['Date'] = df['Date'].astype(str).str.replace('/', '.', regex=False)
@@ -276,12 +276,12 @@ def load_timeseries(ric, highVolDays = False):
     # directory = '/Users/hectorastudillo/py-proyects/Actuary_Science/projects/quantitative_finance/market_data_c/'
     # path = directory + ric + '.csv'
     path = 'market_universe/' + ric + '.csv'
-    raw_data = pd.read_csv(path)
+    clean_data = pd.read_csv(path)
     # Si usamos información de Investing usamos la siguiente linea
-    raw_data = corrector(raw_data)
+    clean_data = corrector(clean_data)
     t = pd.DataFrame()
-    t['date'] = pd.to_datetime(raw_data['Date'],format='mixed', dayfirst=True)
-    t['close'] = raw_data['Close']
+    t['date'] = pd.to_datetime(clean_data['Date'],format='mixed', dayfirst=True)
+    t['close'] = clean_data['Close']
     t = t.sort_values(by='date', ascending=True)
     t['close_previous'] = t['close'].shift(1) # This function shift "recorrer" one cell. 
     t['return'] = t['close'] / t['close_previous'] - 1

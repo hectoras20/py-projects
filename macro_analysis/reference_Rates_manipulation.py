@@ -9,12 +9,12 @@ def load_timeseries(info):
     # directory = '/Users/hectorastudillo/py-proyects/Actuary_Science/projects/quantitative_finance/market_data_c/'
     # path = directory + ric + '.csv'
     path = 'macro/' + info + '.csv'
-    raw_data = pd.read_csv(path)
+    clean_data = pd.read_csv(path)
     # Si usamos información de Investing usamos la siguiente linea
-    # raw_data = corrector(raw_data)
+    # clean_data = corrector(clean_data)
     t = pd.DataFrame()
-    t['Fecha'] = pd.to_datetime(raw_data['Fecha'],format='mixed', dayfirst=True)
-    t['Tasa'] = raw_data['Tasa']
+    t['Fecha'] = pd.to_datetime(clean_data['Fecha'],format='mixed', dayfirst=True)
+    t['Tasa'] = clean_data['Tasa']
     t = t.sort_values(by='Fecha', ascending=True)
     t['Tasa_previa'] = t['Tasa'].shift(1) # This function shift "recorrer" one cell. 
     t['Var'] = t['Tasa'] / t['Tasa_previa'] - 1

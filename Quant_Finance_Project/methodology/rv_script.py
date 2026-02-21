@@ -12,10 +12,10 @@ importlib.reload(market_data)
 ric = file_name.split('.')[0]
 directory = '/Users/hectorastudillo/py-proyects/Actuary_Science/projects/quantitative_finance/market_data/'
 path = directory + ric + '.csv'
-raw_data = pd.read_csv(path)
+clean_data = pd.read_csv(path)
 t = pd. DataFrame ()
-t['date'] = pd.to_datetime(raw_data['Date'], dayfirst=True)
-t['close'] =raw_data['Close']
+t['date'] = pd.to_datetime(clean_data['Date'], dayfirst=True)
+t['close'] =clean_data['Close']
 t = t.sort_values(by='date', ascending=True)
 t['close_previous'] = t['close'].shift(1) # This function shift "recorrer" one cell. 
 t['return_close'] = t['close'] / t['close_previous'] - 1

@@ -21,10 +21,10 @@ def corregir_año(año): # El año serán cada valor de la columna a la cual se 
         return '20' + año  # Asumimos que son años del 2000+
     return año
 
-def corrector(raw_data):
+def corrector(clean_data):
     #Empezamos con la depuración en un nuevo df
     # Renombrar columnas necesarias
-    df = raw_data.rename(columns={"Fecha": "Date", "Cierre": "Close"}).copy()
+    df = clean_data.rename(columns={"Fecha": "Date", "Cierre": "Close"}).copy()
     # Verificación de columnas
     if not {'Date', 'Close'}.issubset(df.columns):
         raise ValueError('The necessary columns do not exist in this data')
@@ -50,12 +50,12 @@ def load_timeseries(ric, highVolDays = False): # highVolDays is an option to fil
     # directory = '/Users/hectorastudillo/py-proyects/Actuary_Science/projects/quantitative_finance/market_data_c/'
     # path = directory + ric + '.csv'
     path = 'market_universe/' + ric + '.csv'
-    raw_data = pd.read_csv(path)
+    clean_data = pd.read_csv(path)
     # Si usamos información de Investing usamos la siguiente linea
-    raw_data = corrector(raw_data)
+    clean_data = corrector(clean_data)
     t = pd.DataFrame()
-    t['date'] = pd.to_datetime(raw_data['Date'],format='mixed', dayfirst=True)
-    t['close'] = raw_data['Close']
+    t['date'] = pd.to_datetime(clean_data['Date'],format='mixed', dayfirst=True)
+    t['close'] = clean_data['Close']
     t = t.sort_values(by='date', ascending=True)
     t['close_previous'] = t['close'].shift(1) # This function shift "recorrer" one cell. 
     t['return'] = t['close'] / t['close_previous'] - 1

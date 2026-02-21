@@ -21,11 +21,11 @@ def corrector(ric):
     # Traigo el data crudo
     directory = '/Users/hectorastudillo/py-proyects/Actuary_Science/projects/quantitative_finance/market_data/'
     path = directory + ric + '.csv'
-    raw_data = pd.read_csv(path)
+    clean_data = pd.read_csv(path)
     #Empezamos con la depuración en un nuevo df
     df = pd.DataFrame()
-    df['date'] = raw_data.iloc[:, 0]
-    df['close'] = raw_data.iloc[:, 1]
+    df['date'] = clean_data.iloc[:, 0]
+    df['close'] = clean_data.iloc[:, 1]
     # Tratando los formatos 
     # DATE with the format 01.01.2025 there is not problem
     df['date'] = df['date'].astype(str).str.replace('/', '.', regex=False)
