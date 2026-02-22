@@ -140,7 +140,7 @@ class model:
         plt.grid()
         plt.show()
         
-    def get_all_correlations(self, getCSV = False, filter_dates = False):
+    def get_all_correlations(self, getCSV = False, from_date = 'aaaa-mm-dd', to_date = 'aaaa-mm-dd'):
         '''
         I want to streamline the process to get the correlations, what if...
         I want to see all the correlations of my assets universe in regard to a specific security...
@@ -155,21 +155,33 @@ class model:
 
         # Creationg of the CSV file with the corrolations 
         # names = [x for x in names if x not in benchmarks]
-        df = pd.DataFrame(columns = ["benchmark", "correlation", "beta", "r2", 'security']) # We might extend the infomration indicated to show
+        df = pd.DataFrame(columns = ["benchmark", "correlation", "beta", "r2", 'security', 'min_date', 'max_date']) # We might extend the infomration indicated to show
         # O(n^2)
-        if filter_dates == True:
-            fecha_inicio = input('Desde (aaaa-mm-dd): ')
-            fecha_fin = input('Hasta (aaaa-mm-dd): ')
         for i in names:
+            # Getting the data
             info = model(i, self.benchmark) # i are our securities 
             info.synchronise_timeseries()
-            if filter_dates == True:
-                constraint = (info.timeseries['date'] >= fecha_inicio) & (info.timeseries['date'] <= fecha_fin)
-                info.timeseries = info.timeseries.loc[constraint].reset_index(drop=True)
-                
+            
+            # Subsetting of data
+            if from_date != 'aaaa-mm-dd' and to_date != 'aaaa-mm-dd':
+                    subsetting = (info.timeseries['date'] >= from_date) & (info.timeseries['date'] <= to_date)
+                    info.timeseries = info.timeseries.loc[subsetting].reset_index(drop=True)
+            elif to_date != 'aaaa-mm-dd':
+                subsetting = info.timeseries['date'] <= to_date
+                info.timeseries = info.timeseries.loc[subsetting].reset_index(drop=True)
+            elif from_date != 'aaaa-mm-dd':
+                subsetting = info.timeseries['date'] >= from_date
+                info.timeseries = info.timeseries.loc[subsetting].reset_index(drop=True)
+            # else, does not make a subsetting and therefore takes all the dates loaded in the database.
+            
             if info.timeseries.empty:
                 print('There is a problem with the data matching with', info.security)
                 continue
+            
+            # Visualy this will help if the asset is recently added to the market
+            min_date = info.timeseries['date'].min()
+            max_date = info.timeseries['date'].max()
+            
             info.compute_linear_reg()
             # Filling out the dataframe with its correct order
             df.loc[len(df)] = [
@@ -177,7 +189,9 @@ class model:
                     info.correlation,
                     info.beta,
                     info.r_squared,
-                    i]
+                    i,
+                    min_date,
+                    max_date]
 
         # Once the data is complete in the dataframe, it is time to present it according to an specific order
         self.allCorrelationsDf = df.sort_values(
@@ -190,7 +204,7 @@ class model:
                 writer = csv.writer(file)
                 writer.writerow(df.columns.tolist()) # Heading
                 writer.writerows(df.to_numpy().tolist()) 
-        
+            print('The file ', self.namefile, ' was updated, if you want to get it in a new file, just call self.namefile and give it a name, it will be created automatically')
 
 class hedge:
     def __init__(self, position_security, position_delta_usd, benchmark, hedge_securities):

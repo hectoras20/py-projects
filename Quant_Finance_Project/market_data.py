@@ -264,8 +264,8 @@ def get_all_kurtosis_skewness(ric, directory = 'market_universe'):
                          'from': [min(i['date']) for i in list_df],
                          'up to': [max(i['date']) for i in list_df]
                         })
-    df['from'] = pd.to_datetime(df['from']).dt.date
-    df['to']   = pd.to_datetime(df['to']).dt.date
+    #df['from'] = pd.to_datetime(df['from']).dt.date
+    #df['to']   = pd.to_datetime(df['to']).dt.date
     # The following constraints does not worth with actual financial data, are useful to theorical topics and understand how the distributions are relative to the normal distribution and that is it.
     # df = df[df['kurtosis']<=3] # A normal distribution has a kurtosis equal to 3
     # df = df[df['skewness']>0] # A normal distribution has a skewness equal to 0, which means it is symmetrical.
@@ -300,17 +300,22 @@ class distribution_manager:
         self.distribution_opt = None
         
     # First method to load the timeserie of the asset, using the isolated function previusly created now is used here.
-    def load_timeseries(self, filter_dates = False):
+    def load_timeseries(self, from_date = 'aaaa-mm-dd', to_date = 'aaaa-mm-dd'):
         """
         We create our timeserie with the isolated function that we create into this script.
         In this functions we get the vector that contains real data, is our random variable
         """
         self.timeseries = load_timeseries(self.ric)
-        if filter_dates == True:
-                fecha_inicio = input('Desde (aaaa-mm-dd): ')
-                fecha_fin = input('Hasta (aaaa-mm-dd): ')
-                constraint = (self.timeseries['date'] >= fecha_inicio) & (self.timeseries['date'] <= fecha_fin)
-                self.timeseries = self.timeseries.loc[constraint].reset_index(drop=True)
+        if from_date != 'aaaa-mm-dd' and to_date != 'aaaa-mm-dd':
+            subsetting = (self.timeseries['date'] >= from_date) & (self.timeseries['date'] <= to_date)
+            self.timeseries = self.timeseries.loc[subsetting].reset_index(drop=True)
+        elif to_date != 'aaaa-mm-dd':
+            subsetting = self.timeseries['date'] <= to_date
+            self.timeseries = self.timeseries.loc[subsetting].reset_index(drop=True)
+        elif from_date != 'aaaa-mm-dd':
+            subsetting = self.timeseries['date'] >= from_date
+            self.timeseries = self.timeseries.loc[subsetting].reset_index(drop=True)
+        # else, does not make a subsetting and therefore takes all the dates loaded in the database.
         self.vector = self.timeseries['return'].values
         self.size = len(self.vector)
         self.str_title = self.ric + ' | real data'
