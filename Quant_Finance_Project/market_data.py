@@ -24,7 +24,7 @@ def corregir_año(año): # El año serán cada valor de la columna a la cual se 
 def corrector(clean_data):
     #Empezamos con la depuración en un nuevo df
     # Renombrar columnas necesarias
-    df = clean_data.rename(columns={"Fecha": "Date", "Cierre": "Close"}).copy()
+    df = clean_data.rename(columns={"Fecha": "Date", "Cierre": "Close", "Precio": "Close"}).copy()
     # Verificación de columnas
     if not {'Date', 'Close'}.issubset(df.columns):
         raise ValueError('The necessary columns do not exist in this data')
@@ -66,7 +66,7 @@ def load_timeseries(ric, highVolDays = False): # highVolDays is an option to fil
     t = t.reset_index(drop=True)
     return t
 
-def synchronise_timseries_df(security, benchmark, highVolDays = False):
+def synchronise_timseries_df(security, benchmark, highVolDays = False, from_date = 'aaaa-mm-dd', to_date = 'aaaa-mm-dd'):
     timeseries_x = load_timeseries(benchmark, highVolDays)
     timeseries_y = load_timeseries(security)
 
@@ -97,6 +97,17 @@ def synchronise_timseries_df(security, benchmark, highVolDays = False):
     timeseries['close_y'] = timeseries_y['close']
     timeseries['return_x'] = timeseries_x['return']
     timeseries['return_y'] = timeseries_y['return']
+    
+    if from_date != 'aaaa-mm-dd' and to_date != 'aaaa-mm-dd':
+        subsetting = (timeseries['date'] >= from_date) & (timeseries['date'] <= to_date)
+        timeseries = timeseries.loc[subsetting].reset_index(drop=True)
+    elif to_date != 'aaaa-mm-dd':
+        subsetting = timeseries['date'] <= to_date
+        timeseries = timeseries.loc[subsetting].reset_index(drop=True)
+    elif from_date != 'aaaa-mm-dd':
+        subsetting = timeseries['date'] >= from_date
+        timeseries = timeseries.loc[subsetting].reset_index(drop=True)
+    # else, does not make a subsetting and therefore takes all the dates loaded in the database.
     
     return timeseries
 

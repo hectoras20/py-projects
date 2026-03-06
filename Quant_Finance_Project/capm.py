@@ -73,12 +73,159 @@ def get_names(directory = "market_universe"):
     nombres = [f.stem for f in ruta.glob("*.csv")]
     return nombres
 
+def get_correlations(specific_benchmarck = None, specific_rics = None, from_date = 'aaaa-mm-dd', to_date = 'aaaa-mm-dd', orderby = 'correlation', getCSV = False, namefile = 'correlation_output.csv'):
+    """
+    Compute correlations, betas and R² between one or multiple benchmarks and a
+    set of securities.
+    
+    This method performs a cross-sectional scan of the asset universe by running
+    a linear regression for every (security, benchmark) pair and storing the
+    resulting statistics in a dataframe.
+    
+    The method supports flexible configuration:
+    
+    - Custom list of benchmarks
+    - Custom subset of securities
+    - Optional time window filtering
+    - Optional CSV export of the results
+    
+    Conceptual note
+    ---------------
+    In this framework the benchmark is treated as the explanatory variable
+    (X) and the security as the dependent variable (Y). Therefore the benchmark
+    explains the security's returns, not necessarily the other way around.
+    
+    Example:
+        A stock may statistically explain an index movement,
+        but the index does not necessarily explain each individual stock.
+    
+    Parameters
+    ----------
+    specific_benchmarck : list | None
+        List of benchmarks to evaluate. If None, the instance benchmark
+        (self.benchmark) is used.
+    
+    specific_rics : list | None
+        List of securities to analyse. If None, the full universe returned by
+        get_names() is used.
+    
+    from_date : str
+        Lower bound of the estimation window (format: 'yyyy-mm-dd').
+        If not provided, the earliest available data is used.
+    
+    to_date : str
+        Upper bound of the estimation window (format: 'yyyy-mm-dd').
+        If not provided, the latest available data is used.
+    
+    orderbby : str
+        We can get the dataframe sorted by correlation, beta or r2
+        
+    getCSV : bool
+        If True, exports the resulting dataframe to self.namefile.
+    
+    namefile : str
+        Indicates the file name where the correlations will be export.
+    
+    Output
+    ------
+    Results are stored in:
+    
+        self.allCorrelationsDf
+    
+    Columns
+    -------
+    benchmark
+        Explanatory variable used in the regression.
+    
+    correlation
+        Pearson correlation coefficient.
+    
+    beta
+        Regression slope (sensitivity of the security to the benchmark).
+    
+    r2
+        Coefficient of determination.
+    
+    security
+        Asset analysed.
+    
+    min_date
+        First observation used in the regression.
+    
+    max_date
+        Last observation used in the regression.
+    """
+    if specific_rics is None:
+        ric_names = get_names() # list 
+    else:
+        ric_names = specific_rics
+        
+    if specific_benchmarck is None:
+        benchmark_names = get_names()
+    else:
+        benchmark_names = specific_benchmarck # list
+
+    # Creationg of the CSV file with the corrolations 
+    # names = [x for x in names if x not in benchmarks]
+    df = pd.DataFrame(columns = ["benchmark", "correlation", "beta", "r2", 'security', 'min_date', 'max_date']) # We might extend the infomration indicated to show
+    
+    # O(n^2)
+    for i in ric_names:
+        for j in benchmark_names:
+            # Getting the data
+            info = model(i, j) # i are our securities 
+            info.synchronise_timeseries()
+            
+            # Subsetting of data
+            if from_date != 'aaaa-mm-dd' and to_date != 'aaaa-mm-dd':
+                    subsetting = (info.timeseries['date'] >= from_date) & (info.timeseries['date'] <= to_date)
+                    info.timeseries = info.timeseries.loc[subsetting].reset_index(drop=True)
+            elif to_date != 'aaaa-mm-dd':
+                subsetting = info.timeseries['date'] <= to_date
+                info.timeseries = info.timeseries.loc[subsetting].reset_index(drop=True)
+            elif from_date != 'aaaa-mm-dd':
+                subsetting = info.timeseries['date'] >= from_date
+                info.timeseries = info.timeseries.loc[subsetting].reset_index(drop=True)
+            # else, does not make a subsetting and therefore takes all the dates loaded in the database.
+            
+            if info.timeseries.empty:
+                print('There is a problem with the data matching with', info.security)
+                continue
+        
+            # Visualy this will help if the asset is recently added to the market
+            min_date = info.timeseries['date'].min()
+            max_date = info.timeseries['date'].max()
+                
+            info.compute_linear_reg()
+            # Filling out the dataframe with its correct order
+            df.loc[len(df)] = [
+                j,
+                info.correlation,
+                info.beta,
+                info.r_squared,
+                i,
+                min_date,
+                max_date]
+            
+    # Sorting the dataframe by security and correlation
+    df = df.sort_values(by=['security', orderby], ascending=[True, False]).reset_index(drop=True)
+    
+    # To export it
+    if getCSV == True:
+        with open(namefile, "w", encoding="UTF8", newline="") as file:
+            writer = csv.writer(file)
+            writer.writerow(df.columns.tolist()) # Heading
+
+            writer.writerows(df.to_numpy().tolist()) 
+        print('The file ', namefile, ' was updated, if you want to get it in a new file, just call self.namefile and give it a name, it will be created automatically')
+        
+    return df
+
 class model:
     def __init__(self, security, benchmark, decimals = 5):
         self.security = security
         self.benchmark = benchmark
         self.decimals = decimals
-        self.namefile = "correlation_output.csv"
         self.timeseries = None
         self.x = None
         self.y = None
@@ -89,10 +236,9 @@ class model:
         self.r_squared = None
         self.hypothesis_null = None
         self.predictor_linreg = None
-        self.allCorrelationsDf = None
         
-    def synchronise_timeseries(self, extremeValues = False):
-        self.timeseries = market_data.synchronise_timseries_df(self.security, self.benchmark, extremeValues)
+    def synchronise_timeseries(self, extremeValues = False, from_date = 'aaaa-mm-dd', to_date = 'aaaa-mm-dd'):
+        self.timeseries = market_data.synchronise_timseries_df(self.security, self.benchmark, extremeValues, from_date, to_date)
         if self.timeseries.empty:
             print('There is a problem with ', self.security, ' and ', self.benchmark, '. There is not information to match')
         
@@ -140,71 +286,7 @@ class model:
         plt.grid()
         plt.show()
         
-    def get_all_correlations(self, getCSV = False, from_date = 'aaaa-mm-dd', to_date = 'aaaa-mm-dd'):
-        '''
-        I want to streamline the process to get the correlations, what if...
-        I want to see all the correlations of my assets universe in regard to a specific security...
-        And export it as a file
-        
-        Be careful with what you want to explain
-        Remember that an index does not explain an asset, for example:
-            - BIMBOA explains MXX index, MXX does not explain BIMBOA
-            - BIMBOA is the benchmark
-        '''
-        names = get_names()
-
-        # Creationg of the CSV file with the corrolations 
-        # names = [x for x in names if x not in benchmarks]
-        df = pd.DataFrame(columns = ["benchmark", "correlation", "beta", "r2", 'security', 'min_date', 'max_date']) # We might extend the infomration indicated to show
-        # O(n^2)
-        for i in names:
-            # Getting the data
-            info = model(i, self.benchmark) # i are our securities 
-            info.synchronise_timeseries()
-            
-            # Subsetting of data
-            if from_date != 'aaaa-mm-dd' and to_date != 'aaaa-mm-dd':
-                    subsetting = (info.timeseries['date'] >= from_date) & (info.timeseries['date'] <= to_date)
-                    info.timeseries = info.timeseries.loc[subsetting].reset_index(drop=True)
-            elif to_date != 'aaaa-mm-dd':
-                subsetting = info.timeseries['date'] <= to_date
-                info.timeseries = info.timeseries.loc[subsetting].reset_index(drop=True)
-            elif from_date != 'aaaa-mm-dd':
-                subsetting = info.timeseries['date'] >= from_date
-                info.timeseries = info.timeseries.loc[subsetting].reset_index(drop=True)
-            # else, does not make a subsetting and therefore takes all the dates loaded in the database.
-            
-            if info.timeseries.empty:
-                print('There is a problem with the data matching with', info.security)
-                continue
-            
-            # Visualy this will help if the asset is recently added to the market
-            min_date = info.timeseries['date'].min()
-            max_date = info.timeseries['date'].max()
-            
-            info.compute_linear_reg()
-            # Filling out the dataframe with its correct order
-            df.loc[len(df)] = [
-                    self.benchmark,
-                    info.correlation,
-                    info.beta,
-                    info.r_squared,
-                    i,
-                    min_date,
-                    max_date]
-
-        # Once the data is complete in the dataframe, it is time to present it according to an specific order
-        self.allCorrelationsDf = df.sort_values(
-            by="correlation",
-            ascending=False).reset_index(drop=True)
-        
-        # To export it
-        if getCSV == True:
-            with open(self.namefile, "w", encoding="UTF8", newline="") as file:
-                writer = csv.writer(file)
-                writer.writerow(df.columns.tolist()) # Heading
-                writer.writerows(df.to_numpy().tolist()) 
-            print('The file ', self.namefile, ' was updated, if you want to get it in a new file, just call self.namefile and give it a name, it will be created automatically')
+    
 
 class hedge:
     def __init__(self, position_security, position_delta_usd, benchmark, hedge_securities):
