@@ -45,8 +45,9 @@ def corrector(clean_data):
     return df[['Date', 'Close']]
 
 
+
 # We did not make this function a calculator method because we will use them after for other topics. We want it at hand.
-def load_timeseries(ric, highVolDays = False): # highVolDays is an option to filter extreme values
+def load_timeseries(ric, highVolDays = False, log_returns = False, period_returns = "daily"): # highVolDays is an option to filter extreme values
     # directory = '/Users/hectorastudillo/py-proyects/Actuary_Science/projects/quantitative_finance/market_data_c/'
     # path = directory + ric + '.csv'
     path = 'market_universe/' + ric + '.csv'
@@ -57,18 +58,32 @@ def load_timeseries(ric, highVolDays = False): # highVolDays is an option to fil
     t['date'] = pd.to_datetime(clean_data['Date'],format='mixed', dayfirst=True)
     t['close'] = clean_data['Close']
     t = t.sort_values(by='date', ascending=True)
+    
+    # PERIOD AGGREGATION
+    t = t.set_index('date')
+    if period_returns == "monthly":
+        t = t.resample('MS').first()
+    elif period_returns == "weekly":
+        t = t.resample('W-MON').first()
+    t = t.reset_index()
+    
     t['close_previous'] = t['close'].shift(1) # This function shift "recorrer" one cell. 
-    t['return'] = t['close'] / t['close_previous'] - 1
-    # Filtering the extreme values
+    
+    # COMPUTE RETURNS
+    if log_returns == False:
+        t['return'] = t['close'] / t['close_previous'] - 1
+    else:
+        t['return'] = np.log(t['close'] / t['close_previous'])
+    # FILTERING EXTREME VALUES
     if highVolDays == True:
         t = t[abs(t['return']) >= 0.01]
     t = t.dropna()
     t = t.reset_index(drop=True)
     return t
 
-def synchronise_timseries_df(security, benchmark, highVolDays = False, from_date = 'aaaa-mm-dd', to_date = 'aaaa-mm-dd'):
-    timeseries_x = load_timeseries(benchmark, highVolDays)
-    timeseries_y = load_timeseries(security)
+def synchronise_timseries_df(security, benchmark, highVolDays = False, from_date = 'aaaa-mm-dd', to_date = 'aaaa-mm-dd', log_returns = False, period_returns = "daily"):
+    timeseries_x = load_timeseries(benchmark, highVolDays, log_returns = log_returns)
+    timeseries_y = load_timeseries(security, log_returns = log_returns)
 
     # Los siguientes pasos son necesarios para tener mismas dimensiones en ambos activos, ya que no podemos manipularlas para la reg. lin. si son de diferente tamaño.
     timestamps_x = timeseries_x['date'].values
@@ -98,6 +113,15 @@ def synchronise_timseries_df(security, benchmark, highVolDays = False, from_date
     timeseries['return_x'] = timeseries_x['return']
     timeseries['return_y'] = timeseries_y['return']
     
+    # PERIOD AGGREGATION
+    timeseries = timeseries.set_index('date')
+    if period_returns == "monthly":
+        timeseries = timeseries.resample('MS').first()
+    elif period_returns == "weekly":
+        timeseries = timeseries.resample('W-MON').first()
+    timeseries = timeseries.reset_index()
+    
+    # FILTERING DATES
     if from_date != 'aaaa-mm-dd' and to_date != 'aaaa-mm-dd':
         subsetting = (timeseries['date'] >= from_date) & (timeseries['date'] <= to_date)
         timeseries = timeseries.loc[subsetting].reset_index(drop=True)
@@ -311,12 +335,12 @@ class distribution_manager:
         self.distribution_opt = None
         
     # First method to load the timeserie of the asset, using the isolated function previusly created now is used here.
-    def load_timeseries(self, from_date = 'aaaa-mm-dd', to_date = 'aaaa-mm-dd'):
+    def load_timeseries(self, from_date = 'aaaa-mm-dd', to_date = 'aaaa-mm-dd', log_returns = False, period_returns = 'daily'):
         """
         We create our timeserie with the isolated function that we create into this script.
         In this functions we get the vector that contains real data, is our random variable
         """
-        self.timeseries = load_timeseries(self.ric)
+        self.timeseries = load_timeseries(self.ric, log_returns=log_returns, period_returns=period_returns)
         if from_date != 'aaaa-mm-dd' and to_date != 'aaaa-mm-dd':
             subsetting = (self.timeseries['date'] >= from_date) & (self.timeseries['date'] <= to_date)
             self.timeseries = self.timeseries.loc[subsetting].reset_index(drop=True)

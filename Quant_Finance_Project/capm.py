@@ -208,7 +208,10 @@ def get_correlations(specific_benchmarck = None, specific_rics = None, from_date
                 max_date]
             
     # Sorting the dataframe by security and correlation
-    df = df.sort_values(by=['security', orderby], ascending=[True, False]).reset_index(drop=True)
+    df = df.sort_values(by=['benchmark'], ascending=[True]).reset_index(drop=True)
+    df = df.sort_values(by=['security'], ascending=[True]).reset_index(drop=True)
+    df = df.sort_values(by=[orderby], ascending=[True]).reset_index(drop=True)
+    # The case when both are None
     
     # To export it
     if getCSV == True:
@@ -221,6 +224,58 @@ def get_correlations(specific_benchmarck = None, specific_rics = None, from_date
         
     return df
 
+
+def plot_normalized_timeseries(
+    rics,
+    from_date='aaaa-mm-dd',
+    to_date='aaaa-mm-dd',
+    base_value=100
+):
+    """
+    Plot normalized price time series for a group of assets.
+
+    Prices are first filtered by the selected date window and then
+    normalized so that the first observation within the window equals
+    the chosen base_value.
+
+    Price_norm = (Price_t / Price_from) * base_value
+    """
+
+    plt.figure(figsize=(12,6))
+
+    for ric in rics:
+
+        t = market_data.load_timeseries(ric)
+
+        # Date filtering
+        if from_date != 'aaaa-mm-dd' and to_date != 'aaaa-mm-dd':
+            subsetting = (t['date'] >= from_date) & (t['date'] <= to_date)
+            t = t.loc[subsetting].reset_index(drop=True)
+
+        elif to_date != 'aaaa-mm-dd':
+            subsetting = t['date'] <= to_date
+            t = t.loc[subsetting].reset_index(drop=True)
+
+        elif from_date != 'aaaa-mm-dd':
+            subsetting = t['date'] >= from_date
+            t = t.loc[subsetting].reset_index(drop=True)
+
+        if t.empty:
+            print("No data available for", ric)
+            continue
+
+        base = t['close'].iloc[0]
+        normalized = t['close'] / base * base_value
+
+        plt.plot(t['date'], normalized, label=ric)
+
+    plt.title(f"Normalized Price Series (Base = {base_value})")
+    plt.xlabel("Time")
+    plt.ylabel(f"Price Index (Base = {base_value})")
+    plt.grid(True)
+    plt.legend()
+    plt.show()
+    
 class model:
     def __init__(self, security, benchmark, decimals = 5):
         self.security = security
@@ -237,9 +292,9 @@ class model:
         self.hypothesis_null = None
         self.predictor_linreg = None
         
-    def synchronise_timeseries(self, extremeValues = False, from_date = 'aaaa-mm-dd', to_date = 'aaaa-mm-dd'):
-        self.timeseries = market_data.synchronise_timseries_df(self.security, self.benchmark, extremeValues, from_date, to_date)
-        if self.timeseries.empty:
+    def synchronise_timeseries(self, extremeValues = False, from_date = 'aaaa-mm-dd', to_date = 'aaaa-mm-dd', log_returns = False, period_returns = 'daily'):
+        self.timeseries = market_data.synchronise_timseries_df(self.security, self.benchmark, highVolDays = extremeValues, from_date = from_date, to_date = to_date, log_returns = log_returns, period_returns = period_returns)
+        if self.timeseries.empty: 
             print('There is a problem with ', self.security, ' and ', self.benchmark, '. There is not information to match')
         
     def plot_timeseries(self):
@@ -285,6 +340,8 @@ class model:
         plt.xlabel(self.benchmark) 
         plt.grid()
         plt.show()
+        
+    
         
     
 
