@@ -3,7 +3,11 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import importlib
 import scipy.stats as st
-import scipy.optimize as op 
+import scipy.optimize as op
+
+from scipy.stats import shapiro
+from statsmodels.stats.diagnostic import het_breuschpagan
+from statsmodels.stats.stattools import durbin_watson
 
 from pathlib import Path
 import csv
@@ -289,6 +293,7 @@ class model:
         self.r_squared = None
         self.hypothesis_null = None
         self.predictor_linreg = None
+        self.residuals = None
         
     def synchronise_timeseries(self, extremeValues = False, from_date = 'aaaa-mm-dd', to_date = 'aaaa-mm-dd', log_returns = False, period_returns = 'daily'):
         self.timeseries = market_data.synchronise_timseries_df(self.security, self.benchmark, highVolDays = extremeValues, from_date = from_date, to_date = to_date, log_returns = log_returns, period_returns = period_returns)
@@ -323,6 +328,7 @@ class model:
         self.r_squared = np.round(correl_r**2, self.decimals)
         self.hypothesis_null = p_value > 0.5
         self.predictor_linreg = intercept_alpha + slope_beta * self.x
+        self.residuals = self.y - self.predictor_linreg
         
     def plot_linear_reg(self, ax=None):
         created_ax = ax is None
@@ -366,7 +372,90 @@ class model:
         if ax is None:
             plt.show()
         
+    def assumptions_test(self, alpha=0.05):
+        """
+        Tests de supuestos del modelo de regresión lineal simple.
     
+        Supuestos evaluados:
+        1. Linealidad
+        2. Homocedasticidad (Breusch-Pagan)
+        3. Normalidad de residuos (Shapiro-Wilk)
+        4. Independencia (Durbin-Watson)
+    
+        Parámetro:
+        alpha: nivel de significancia (default 0.05)
+    
+        Interpretación general:
+        - p-value < alpha → evidencia contra H0 (se viola el supuesto)
+        - p-value >= alpha → no hay evidencia para rechazar H0
+        
+        Si no hay linealidad... el modelo está mal especificado y la relación X - Y no es una recta
+        transformar variables (log, diff)
+        agregar términos (polinomios)
+        usar otro modelo
+        
+        Si hay heterocedasticidad (varianza no constante)... el “ruido” cambia con el nivel de X o ŷ, los coeficientes siguen siendo válidos pero p-values y errores estándar están mal
+        Este NO rompe el modelo, rompe la inferencia.
+        usar errores robustos (HC1, HC3)
+        modelar volatilidad (GARCH)
+        """
+    
+        print("\n--- ASSUMPTIONS TEST ---\n")
+    
+        # 1. LINEALIDAD (visual)
+        plt.figure(figsize=(6,4))
+        plt.scatter(self.predictor_linreg, self.residuals)
+        plt.axhline(0)
+        plt.xlabel("Fitted values")
+        plt.ylabel("Residuals")
+        plt.title("Residuals vs Fitted (Linearity check)")
+        plt.grid()
+        plt.show()
+    
+        print("1) Linealidad:")
+        print("- OK: nube aleatoria sin patrón")
+        print("- MAL: forma curva, tendencia o estructura visible\n")
+    
+        # 2. HOMOCEDASTICIDAD
+        # Construimos matriz X manualmente (intercepto + x)
+        X = np.column_stack((np.ones(len(self.x)), self.x))
+    
+        bp_test = het_breuschpagan(self.residuals, X)
+        bp_pvalue = bp_test[1]
+    
+        print("2) Homocedasticidad (Breusch-Pagan):")
+        print(f"p-value: {bp_pvalue:.5f}")
+    
+        if bp_pvalue < alpha:
+            print("→ Se RECHAZA H0: hay heterocedasticidad (varianza NO constante)\n")
+        else:
+            print("→ NO se rechaza H0: varianza constante\n")
+    
+    
+        # 3. NORMALIDAD
+        shapiro_test = shapiro(self.residuals)
+        shapiro_pvalue = shapiro_test.pvalue
+    
+        print("3) Normalidad (Shapiro-Wilk):")
+        print(f"p-value: {shapiro_pvalue:.5f}")
+    
+        if shapiro_pvalue < alpha:
+            print("→ Se RECHAZA H0: residuos NO normales\n")
+        else:
+            print("→ NO se rechaza H0: residuos normales\n")
+    
+        # 4. AUTOCORRELACIÓN
+        dw_stat = durbin_watson(self.residuals)
+    
+        print("4) Independencia (Durbin-Watson):")
+        print(f"DW statistic: {dw_stat:.5f}")
+    
+        if dw_stat < 1.5:
+            print("→ Posible autocorrelación positiva\n")
+        elif dw_stat > 2.5:
+            print("→ Posible autocorrelación negativa\n")
+        else:
+            print("→ Sin evidencia de autocorrelación\n")
     
 
 class hedge:
